@@ -1,0 +1,20 @@
+package errorpage
+
+import (
+	"sifeucr/templates/base"
+	"sifeucr/templates/meta"
+)
+
+templ NotFound(message string) {
+	@base.Page(base.PageParams{
+		Head: base.HeadParams{Title: meta.AppTitle, Subtitle: message},
+		Body: base.BodyParams{Content: notFoundContent(message)},
+	})
+}
+
+templ notFoundContent(message string) {
+	<section>
+		<h1>404</h1>
+		<p>{ message }</p>
+	</section>
+}

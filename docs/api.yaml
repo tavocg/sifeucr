@@ -1,0 +1,494 @@
+openapi: 3.1.0
+info:
+  title: sifeucr API
+  version: 0.1.0
+  description: >-
+    OpenAPI specification of sifeucr. JSON request bodies are limited to 1 MiB;
+    oversized bodies return 400. JSON responses include Cache-Control no-store.
+    Unmatched routes return a localized HTML page or JSON with status 404,
+    negotiated using Accept with the same weights and defaults as the root.
+    If neither format is acceptable, router 404 responses fall back to JSON;
+    both formats use no-store and Vary on Accept and Accept-Language.
+    Unsupported methods
+    return localized JSON with status 405 and the Allow header. The root page
+    matches only the application root, not unknown paths.
+    The root page negotiates application/json or text/html using Accept weights,
+    wildcards and media parameters. JSON wins equal weights and is the fallback
+    when Accept is absent, blank, unsupported or excludes both formats. Unsupported
+    preferences do not produce status 406. Both formats use no-store
+    and Vary on Accept and Accept-Language; XHTML is not offered. API endpoints
+    remain JSON-only.
+    JSON request bodies are parsed regardless of Content-Type; missing headers
+    and text/plain are accepted, but the body must still contain valid JSON.
+    Registered routes carry a twenty-second request-context deadline. Database
+    operations and mail delivery use that context; failures after it expires
+    return localized JSON with status 504 if response headers have not been sent.
+    Cancellation is cooperative and does
+    not roll back changes already committed before the deadline.
+    OTP limits in the application are per normalized email for login and per
+    authenticated account for email changes. Per-client-IP throttling belongs
+    in the deployment's reverse proxy; the application does not impose IP or
+    global OTP limits. Verification codes are stored only as HMAC-SHA-256
+    digests bound to their purpose and identity; plaintext codes are never
+    persisted.
+servers:
+  - url: http://localhost:3080
+    description: Local development server
+tags:
+  - name: Authentication
+  - name: Account
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      operationId: loginOrCreateAccount
+      summary: Trigger login or account creation
+      description: Creates a temporary 6-digit verification code. The message is submitted to the configured mailer; the default noop mailer discards it without delivery. Development mode can log the code. Limited to one request every 60 seconds and five requests per ten-minute window per normalized email; reissuing does not reset the verification budget.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: john@doe.com
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '502':
+          $ref: '#/components/responses/OTPMailFailure'
+        '429':
+          $ref: '#/components/responses/OTPRateLimited'
+        '204':
+          description: Verification request stored and accepted by the mailer. The default noop mailer does not deliver email.
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/verify:
+    post:
+      tags:
+        - Authentication
+      operationId: verifyAuthenticationCode
+      summary: Verify email code
+      description: Atomically consumes the provided unexpired email code once, then creates a new session. If no account exists for the email address, a new account is created. Limited to five verification requests per ten-minute window per normalized email, including failed attempts and successful verifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+            example:
+              email: john@doe.com
+              otp: "123456"
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '429':
+          $ref: '#/components/responses/OTPRateLimited'
+        '200':
+          description: Verified account and created session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
+              example:
+                access_token: eyJhbGciOa...
+                refresh_token: X4fFxvY89ypw5f...
+                expires_in: 900
+                refresh_token_expires_in: 2592000
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      operationId: refreshSession
+      summary: Refresh session tokens
+      description: Atomically consumes a refresh token and issues a replacement for the same account session generation. Tokens from a revoked generation or expired while waiting for a database lock are rejected. Account-wide revocation invalidates both access and refresh tokens; requests already authenticated may finish.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refresh_token: X4fFxvY89ypw5f...
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '200':
+          description: Refreshed tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+              example:
+                access_token: eyJhbGciOiJIU...
+                refresh_token: X4fFxvY89ypw5f...
+                expires_in: 900
+                refresh_token_expires_in: 2592000
+        default:
+          $ref: '#/components/responses/Error'
+  /account:
+    get:
+      tags:
+        - Account
+      operationId: getAccount
+      summary: Get account details
+      security:
+        - bearerAuth: []
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '200':
+          description: Account information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              example:
+                email: john@doe.com
+                created_at: 1777872664
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+        - Account
+      operationId: deleteAccount
+      summary: Delete account
+      description: Deletes the authenticated account. Subsequent requests with its access tokens are rejected and its refresh tokens are removed.
+      security:
+        - bearerAuth: []
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '204':
+          description: Account deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /account/sessions:
+    get:
+      tags:
+        - Account
+      operationId: listSessions
+      summary: List open account sessions
+      description: Returns up to 100 sessions, newest first, scoped to the authenticated account. Follow next_cursor to obtain subsequent pages. Device information is the unverified User-Agent captured at login; last_used_at records issuance or refresh, not every API request. The current field identifies the caller's session. Credentials and credential hashes are never returned. Responses are not cached.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          description: Opaque next_cursor from the preceding page. Omit for the first page.
+          schema:
+            type: string
+            maxLength: 128
+      responses:
+        '200':
+          description: Open account sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSessions'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+        - Account
+      operationId: revokeSessions
+      summary: Close all account sessions
+      description: Requires no body. Atomically rotates the account generation and removes all its sessions, including the caller's. Existing access and refresh tokens are rejected on subsequent requests; already authenticated requests may finish. The account and OTP challenges remain intact, and a fresh login can create a new session. The empty response includes Cache-Control no-store.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: All account sessions revoked.
+        '401':
+          $ref: '#/components/responses/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        default:
+          $ref: '#/components/responses/Error'
+  /account/sessions/{id}:
+    delete:
+      tags:
+        - Account
+      operationId: revokeSession
+      summary: Close one account session
+      description: Requires no body. Revokes the selected session's access and refresh tokens while preserving other sessions. Only sessions owned by the authenticated account can be revoked. Deleting an absent session or an identifier belonging to another account returns the same 204. Revoking the caller's session makes its subsequent requests unauthorized. Already authenticated requests may finish. The empty response includes Cache-Control no-store.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Session identifier from the session list.
+          schema:
+            type: string
+            minLength: 64
+            maxLength: 64
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        '204':
+          description: Session revoked or no matching session owned by this account.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        default:
+          $ref: '#/components/responses/Error'
+  /account/email/change:
+    patch:
+      tags:
+        - Account
+      operationId: requestEmailChange
+      summary: Request an email address change
+      description: Limited to one request every 60 seconds and five requests per ten-minute window per account, regardless of target email. Reissuing does not reset the verification budget.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeEmailRequest'
+            example:
+              new_email: new@email.com
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '502':
+          $ref: '#/components/responses/OTPMailFailure'
+        '429':
+          $ref: '#/components/responses/OTPRateLimited'
+        '204':
+          description: Email change request stored and submitted to the new address through the configured mailer. The default noop mailer does not deliver email.
+        default:
+          $ref: '#/components/responses/Error'
+  /account/email/change/confirm:
+    patch:
+      tags:
+        - Account
+      operationId: confirmEmailChange
+      summary: Confirm an email address change
+      description: Limited to five verification requests per ten-minute window per account, including failed attempts and successful verifications.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeEmailConfirmRequest'
+            example:
+              otp: "123456"
+      responses:
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+        '429':
+          $ref: '#/components/responses/OTPRateLimited'
+        '204':
+          description: Email change confirmed.
+        '409':
+          description: The target email is unavailable. Reported only after validating the code. The account stays unchanged and the code remains valid until expiration; this attempt still counts toward the verification limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access tokens must contain an expiration, a session identifier (sid), and the current account authentication identity. Every verification reads the live session without caching; deleting one session invalidates its access tokens as well as its refresh token. Account-wide session revocation rotates this identity, rejecting previous tokens immediately on subsequent verification. Tokens for deleted accounts and tokens issued before the account identity migration are rejected.
+  responses:
+    RequestTimeout:
+      description: The request-context deadline expired. Changes committed before expiration may still have taken effect.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    OTPMailFailure:
+      description: The configured mailer reported a failure. The saved code expires normally and request limits remain in effect; a delivery error can occur after a provider has accepted the message.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    OTPRateLimited:
+      description: An OTP identity budget is exhausted. Retry-After refers to the rejecting budget; other identity budgets may still apply afterward. Limits persist in the database and are not reset by requesting another code or restarting the server.
+      headers:
+        Retry-After:
+          description: Seconds until this request budget resets.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+    VerifyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - otp
+      properties:
+        email:
+          type: string
+          format: email
+        otp:
+          type: string
+          description: Six-digit one-time password.
+          minLength: 6
+          maxLength: 6
+          pattern: '^[0-9]{6}$'
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    SessionTokens:
+      type: object
+      additionalProperties: false
+      required:
+        - access_token
+        - refresh_token
+        - expires_in
+        - refresh_token_expires_in
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+          minimum: 0
+        refresh_token_expires_in:
+          type: integer
+          minimum: 0
+    VerifyResponse:
+      $ref: '#/components/schemas/SessionTokens'
+    RefreshResponse:
+      $ref: '#/components/schemas/SessionTokens'
+    AccountSession:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - user_agent
+        - created_at
+        - last_used_at
+        - expires_at
+        - current
+      properties:
+        id:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[0-9a-f]{64}$'
+        user_agent:
+          type: string
+          description: Unverified client-supplied User-Agent at login, limited to 512 UTF-8 bytes with control characters removed. Empty for sessions created before device tracking or without a User-Agent. Treat as plain text when displaying it.
+        created_at:
+          type: integer
+          format: int64
+          description: Session creation time as Unix seconds in UTC, preserved across refreshes.
+        last_used_at:
+          type: integer
+          format: int64
+          description: Last token issuance or refresh as Unix seconds in UTC. API reads do not update this value.
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix seconds when both access and refresh tokens have expired. Zero means no expiration for a legacy non-expiring refresh token. A successful refresh may extend this value.
+        current:
+          type: boolean
+          description: Whether this is the session authenticating the current request.
+    AccountSessions:
+      type: object
+      additionalProperties: false
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AccountSession'
+        next_cursor:
+          type: string
+          maxLength: 128
+          description: Opaque cursor for the next page; absent on the last page.
+    Account:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - created_at
+      properties:
+        email:
+          type: string
+          format: email
+        created_at:
+          type: integer
+          description: Account creation timestamp.
+    ChangeEmailRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - new_email
+      properties:
+        new_email:
+          type: string
+          format: email
+    ChangeEmailConfirmRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - otp
+      properties:
+        otp:
+          type: string
+          description: Six-digit one-time password.
+          minLength: 6
+          maxLength: 6
+          pattern: '^[0-9]{6}$'
+    Error:
+      type: object
+      description: Generic JSON error payload.
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Localized human-readable error message.

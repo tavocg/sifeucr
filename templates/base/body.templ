@@ -1,0 +1,44 @@
+package base
+
+import "sifeucr/templates/meta"
+
+type BodyParams struct {
+	Content templ.Component
+	Aside   templ.Component
+}
+
+templ body(params BodyParams) {
+	<body>
+		<div class="hidden" id={ RedirectID }></div>
+		@header()
+		@main(params.Content, params.Aside)
+		@footer()
+	</body>
+}
+
+templ header() {
+	<header>
+		<nav>
+			<span>{ meta.AppTitle }</span>
+		</nav>
+	</header>
+}
+
+templ main(content, aside templ.Component) {
+	<main>
+		if aside != nil {
+			<aside>
+				@aside
+			</aside>
+		}
+		<div class="content">
+			@content
+		</div>
+	</main>
+}
+
+templ footer() {
+	<footer>
+		© { meta.Year } { meta.CopyrightHolder }
+	</footer>
+}

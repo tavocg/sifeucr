@@ -1,0 +1,14 @@
+package base
+
+type PageParams struct {
+	Head HeadParams
+	Body BodyParams
+}
+
+templ Page(page PageParams) {
+	<!DOCTYPE html>
+	<html>
+		@head(page.Head)
+		@body(page.Body)
+	</html>
+}

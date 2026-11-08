@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id SMALLINT PRIMARY KEY,
+  version BIGINT NOT NULL
+);

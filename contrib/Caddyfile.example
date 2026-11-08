@@ -1,0 +1,8 @@
+# Caddy obtains/renews the certificate and redirects HTTP to HTTPS.
+example.com {
+	encode /s/* gzip
+	reverse_proxy 127.0.0.1:3080 {
+		header_up -Forwarded
+		header_up -X-Real-IP
+	}
+}

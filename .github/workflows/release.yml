@@ -1,42 +1,93 @@
-# .github/workflows/release.yml
-name: Release
-
+name: Build
 on:
   push:
-    tags:
-      - "v*"
+  pull_request:
+permissions:
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sifeucr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d sifeucr_test"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: sifeucr_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysql --protocol=TCP -h 127.0.0.1 -uroot -pmysql -e 'SELECT 1' sifeucr_test"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup
+        run: |
+          npm ci
+          go generate ./...
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+
+      - name: Test
+        run: go test -race ./...
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres:postgres@127.0.0.1:5432/sifeucr_test?sslmode=disable
+          TEST_MYSQL_DSN: root:mysql@tcp(127.0.0.1:3306)/sifeucr_test
+
+      - name: Check Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+      - name: Build
+        run: |
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w" -o sifeucr-linux-$arch .
+            upx --best sifeucr-linux-$arch
+          done
+
+      - name: Store release binaries
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sifeucr-linux
+          path: sifeucr-linux-*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          name: sifeucr-linux
+          path: dist
+      - uses: softprops/action-gh-release@v2
         with:
-          go-version-file: 'go.mod'
-
-      - name: Run release script
-        run: |
-          chmod +x ./scripts/release.sh
-          ./scripts/release.sh
-
-      - name: Verify artifacts
-        run: |
-          test -d dist && test "$(ls -1 dist | wc -l)" -gt 0 || \
-          (echo "No files in dist/ — did release.sh build outputs there?" && exit 1)
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: "dist/*"
           fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            dist/sifeucr-linux-arm64
+            dist/sifeucr-linux-amd64

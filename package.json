@@ -1,0 +1,15 @@
+{
+  "name": "sifeucr",
+  "version": "0.1.0",
+  "description": "Documentation tooling for the sifeucr Go server template",
+  "license": "GPL-3.0-or-later",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "redocly": "redocly build-docs docs/api.yaml --output handlers/static/api/index.html >/dev/null 2>&1",
+    "test": "go test ./..."
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.30.3"
+  }
+}

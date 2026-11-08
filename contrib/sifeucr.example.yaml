@@ -1,0 +1,81 @@
+# sifeucr.yaml - Configuration for sifeucr
+#
+# All options here are set to the default values. If no configuration file is
+# found, then these values will be used.
+
+# Enable development features like source locations in logs.
+# Allows empty or short signing secrets with warnings.
+# Override with:
+#   SIFEUCR_DEV=true sifeucr serve
+#   sifeucr serve --dev
+dev: false
+
+# Host or interface to bind to. Empty means the default bind behavior.
+# Override with:
+#   SIFEUCR_HOST=127.0.0.1 sifeucr serve
+#   sifeucr serve --host 127.0.0.1
+host: ""
+
+# TCP port to listen on.
+# Override with:
+#   SIFEUCR_PORT=8080 sifeucr serve
+#   sifeucr serve --port 8080
+port: 3080
+
+# Auth settings.
+# Signing secrets require at least 32 bytes outside development mode.
+# Override with:
+#   SIFEUCR_AUTH_SECRET=change-me sifeucr serve --dev
+#   sifeucr serve --dev --auth-secret change-me
+#   SIFEUCR_AUTH_ACCESS_TOKEN_TTL=15m sifeucr serve
+#   sifeucr serve --auth-access-ttl 15m
+#   SIFEUCR_AUTH_REFRESH_TOKEN_TTL=720h sifeucr serve
+#   sifeucr serve --auth-refresh-ttl 720h
+auth:
+  secret: ""
+  access-token-ttl: 15m
+  refresh-token-ttl: 720h
+
+# Independent HMAC key used to store verification codes as keyed digests.
+# Use at least 32 random bytes outside development; it must differ from auth.secret.
+# In development, an empty value uses a temporary key that changes on restart.
+# Rotating this key invalidates every pending verification code.
+# Override with:
+#   SIFEUCR_OTP_SECRET=change-me sifeucr serve --dev
+#   sifeucr serve --dev --otp-secret change-me
+otp:
+  secret: ""
+
+# Route prefix to mount the sifeucr under.
+# Use a clean literal path such as /sifeucr/v1, without wildcards, percent encoding,
+# dot segments, repeated interior slashes, whitespace, backslashes, query or fragment.
+# Override with:
+#   SIFEUCR_ROOT=/sifeucr sifeucr serve
+#   sifeucr serve --root /prefix
+root: ""
+
+# Log output format. Valid values: json, text.
+# Override with:
+#   SIFEUCR_LOGFMT=text sifeucr serve
+#   sifeucr serve --logfmt text
+logfmt: json
+
+# Minimum log level. Valid values: debug, info, warn, error.
+# Override with:
+#   SIFEUCR_LOGLVL=debug sifeucr serve
+#   sifeucr serve --loglvl debug
+loglvl: info
+
+# Database connection string or path.
+# Override with:
+#   SIFEUCR_DB=data/custom.sqlite sifeucr serve
+#   sifeucr serve --db data/custom.sqlite
+#   sifeucr serve --db 'postgres://user:pass@localhost:5432/sifeucr?sslmode=disable'
+#   sifeucr serve --db 'mysql://user:pass@localhost:3306/sifeucr'
+db: data/sifeucr.sqlite
+
+# Sender used when building emails. The default noop mailer discards messages.
+# Replace the mailer injected in cmd/server.go to enable actual delivery.
+# Override with SIFEUCR_MAIL_FROM or --mail-from.
+mail:
+  from: no-reply@example.com

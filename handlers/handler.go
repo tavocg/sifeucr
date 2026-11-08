@@ -1,143 +1,177 @@
+// Package handlers registers the application's HTTP handlers.
 package handlers
 
 import (
-	"context"
-	"database/sql"
+	"errors"
 	"fmt"
-	"html/template"
-	"log"
-	"runtime"
+	"log/slog"
+	"net/http"
+	"net/mail"
+	"os"
+	"path"
+	"strings"
+	"time"
+	"unicode"
 
-	"git.tavo.one/tavo/axiom/sessions"
-	"git.tavo.one/tavo/axiom/storage"
-
-	"sifeucr/config"
-	"sifeucr/internal/db"
+	appauth "sifeucr/auth"
+	"sifeucr/database"
+	"sifeucr/internal/logging"
+	"sifeucr/middleware"
+	"github.com/tavocg/go-auth"
+	"github.com/tavocg/go-email/mailer"
+	"github.com/tavocg/go-i18n"
+	"github.com/tavocg/go-secrets/otp"
 )
 
+const requestTimeout = 20 * time.Second
+
 type Handler struct {
-	cfg Config
+	dev bool
+
+	logger        logging.Logger
+	db            database.Database
+	authenticator auth.Authenticator[*appauth.Claims]
+	localizer     *i18n.Localizer
+	rootPrefix    string
+	mailer        mailer.Mailer
+	mailFrom      string
+	otpSigner     *otp.Signer
+
+	mux   *http.ServeMux
+	entry http.Handler
 }
 
-type Logger struct {
-	Enabled bool
+type Options struct {
+	Logger        logging.Logger
+	Dev           bool
+	DB            database.Database
+	Authenticator auth.Authenticator[*appauth.Claims]
+	Localizer     *i18n.Localizer
+	RootPrefix    string
+	Mailer        mailer.Mailer
+	MailFrom      string
+	OTPSigner     *otp.Signer
 }
 
-type Config struct {
-	IsFirstTimeSetup bool
-	Production       bool
-	SmtpUser         string
-	SmtpPass         string
-	ServerSecret     string
-	Logger           *Logger
-	Views            map[string]*template.Template
-	DB               *sql.DB
-	S3               *storage.Client
-	Sessions         *sessions.SessionStore[config.Session]
-}
-
-func New(cfg Config) *Handler {
-	return &Handler{
-		cfg: cfg,
-	}
-}
-
-func (h *Handler) IsFirstTimeSetup() bool {
-	return h.cfg.IsFirstTimeSetup
-}
-
-func (h *Handler) Production() bool {
-	return h.cfg.Production
-}
-
-func (h *Handler) SmtpUser() string {
-	return h.cfg.SmtpUser
-}
-
-func (h *Handler) SmtpPass() string {
-	return h.cfg.SmtpPass
-}
-
-func (h *Handler) ServerSecret() string {
-	return h.cfg.ServerSecret
-}
-
-func (h *Handler) Views() map[string]*template.Template {
-	return h.cfg.Views
-}
-
-func (h *Handler) DB() *sql.DB {
-	return h.cfg.DB
-}
-
-func (h *Handler) S3() *storage.Client {
-	return h.cfg.S3
-}
-
-func (h *Handler) Sessions() *sessions.SessionStore[config.Session] {
-	return h.cfg.Sessions
-}
-
-func (h *Handler) Log() *Logger {
-	return h.cfg.Logger
-}
-
-func (l *Logger) Error(format string, args ...any) {
-	if !l.Enabled {
-		return
+func NewHandler(opts Options) (*Handler, error) {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
-	pc, _, _, ok := runtime.Caller(1)
-	funcName := "unknown"
-	if ok {
-		funcName = runtime.FuncForPC(pc).Name()
+	if opts.DB == nil {
+		return nil, errors.New("handler database is required")
+	}
+	if opts.Localizer == nil {
+		return nil, errors.New("handler localizer is required")
 	}
 
-	msg := fmt.Sprintf(format, args...)
-
-	log.Printf("%s: %s", funcName, msg)
-}
-
-func getCSRFTokenFromContext(ctx context.Context) string {
-	if ct, ok := ctx.Value(config.CSRFTokenKey).(string); ok {
-		return ct
-	}
-	return ""
-}
-
-func getUserIDFromContext(ctx context.Context) int64 {
-	if v, ok := ctx.Value(config.UserIDKey).(int64); ok {
-		return v
-	}
-	return 0
-}
-
-func getAccountIDFromContext(ctx context.Context) int64 {
-	if v, ok := ctx.Value(config.AccountIDKey).(int64); ok {
-		return v
-	}
-	return 0
-}
-
-func (h *Handler) checkPermissionFromContext(ctx context.Context, required int64) error {
-	userID := getUserIDFromContext(ctx)
-	accountID := getAccountIDFromContext(ctx)
-	if userID == 0 || accountID == 0 {
-		return fmt.Errorf("cannot addBudgetEntry: invalid data")
+	if opts.Authenticator == nil {
+		return nil, errors.New("handler authenticator is required")
 	}
 
-	queries := db.New(h.DB())
-	perm, err := queries.PermissionByUserIDAndAccountID(ctx, db.PermissionByUserIDAndAccountIDParams{
-		UserID:    userID,
-		AccountID: accountID,
-	})
+	if opts.Mailer == nil {
+		return nil, errors.New("handler mailer is required")
+	}
+	sender, err := mail.ParseAddress(opts.MailFrom)
 	if err != nil {
-		return fmt.Errorf("failed to query permissions: %v")
+		return nil, fmt.Errorf("invalid handler mail sender: %w", err)
 	}
 
-	if !config.HasPermission(perm.PermissionInteger, required) {
-		return fmt.Errorf("incorrect permissions, got:%d want:%d", perm.PermissionInteger, required)
+	if opts.OTPSigner == nil {
+		return nil, errors.New("handler OTP signer is required")
 	}
 
-	return nil
+	rootPrefix, err := normalizeRootPrefix(opts.RootPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	next := &Handler{
+		dev:           opts.Dev,
+		logger:        logger,
+		db:            opts.DB,
+		authenticator: opts.Authenticator,
+		localizer:     opts.Localizer,
+		rootPrefix:    rootPrefix,
+		mailer:        opts.Mailer,
+		mailFrom:      sender.String(),
+		otpSigner:     opts.OTPSigner,
+		mux:           http.NewServeMux(),
+	}
+
+	next.registerRoutes()
+	next.entry = middleware.RequestLogger(next.logger, http.HandlerFunc(next.route))
+
+	return next, nil
+}
+
+// Add registers a handler function relative to the configured root prefix.
+func (h *Handler) Add(method, path string, fn http.HandlerFunc) {
+	h.AddHandler(method, path, fn)
+}
+
+// AddHandler registers a handler with a request deadline, including its middleware.
+func (h *Handler) AddHandler(method, path string, handler http.Handler) {
+	pattern := h.routePath(path)
+	if method != "" {
+		pattern = method + " " + pattern
+	}
+
+	h.mux.Handle(pattern, middleware.WithTimeout(requestTimeout, handler))
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.entry == nil {
+		panic("handler not initialized")
+	}
+
+	h.entry.ServeHTTP(w, r)
+}
+
+func (h *Handler) registerRoutes() {
+	h.registerAuthRoutes()
+	h.registerAccountRoutes()
+	h.registerRootRoutes()
+	h.registerStaticRoutes()
+}
+
+func (h *Handler) routePath(route string) string {
+	route = strings.TrimSpace(route)
+	if route == "" || route == "/" {
+		if h.rootPrefix == "" {
+			return "/"
+		}
+
+		return h.rootPrefix
+	}
+
+	if !strings.HasPrefix(route, "/") {
+		route = "/" + route
+	}
+
+	return h.rootPrefix + route
+}
+
+func normalizeRootPrefix(prefix string) (string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "/" {
+		return "", nil
+	}
+
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		return "", nil
+	}
+	if path.Clean(prefix) != prefix || strings.ContainsAny(prefix, "{}%?#\\") {
+		return "", errors.New("root prefix must be a clean literal URL path without wildcards, escapes, query strings or fragments")
+	}
+	if strings.ContainsFunc(prefix, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return "", errors.New("root prefix cannot contain whitespace or control characters")
+	}
+	return prefix, nil
 }

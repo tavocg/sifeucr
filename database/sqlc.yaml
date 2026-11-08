@@ -1,0 +1,30 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "postgres/migrations"
+    queries: "postgres/queries"
+    gen:
+      go:
+        package: "db"
+        rename:
+          otp_hash: "OTPHash"
+        out: "postgres/db"
+        sql_package: "pgx/v5"
+  - engine: "sqlite"
+    schema: "sqlite/migrations"
+    queries: "sqlite/queries"
+    gen:
+      go:
+        package: "db"
+        rename:
+          otp_hash: "OTPHash"
+        out: "sqlite/db"
+  - engine: "mysql"
+    schema: "mysql/migrations"
+    queries: "mysql/queries"
+    gen:
+      go:
+        package: "db"
+        rename:
+          otp_hash: "OTPHash"
+        out: "mysql/db"
