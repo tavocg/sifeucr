@@ -2,7 +2,7 @@ package i18n
 
 var es = map[string]string{
 	"web.overview":            "Vista general",
-	"web.dashboard":           "Dashboard",
+	"web.dashboard":           "Entorno",
 	"web.platform":            "Plataforma",
 	"web.project":             "Proyecto",
 	"web.about":               "Acerca de",
