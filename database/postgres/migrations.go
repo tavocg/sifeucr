@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"sifeucr/database"
-	"sifeucr/database/postgres/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"sifeucr/database"
+	"sifeucr/database/postgres/db"
 )
 
 //go:embed migrations/*.sql

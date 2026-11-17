@@ -1,0 +1,47 @@
+package home
+
+import "encoding/json"
+
+type Session struct {
+	ID                     string
+	Device                 string
+	Browser                string
+	OS                     string
+	Created, Used, Expires int64
+	Current                bool
+}
+
+type View struct {
+	Email       string
+	VerifyEmail bool
+	Notice      string
+	Failed      bool
+}
+
+templ Home(action, home, next string, sessions []Session, language string, view View, tr func(string) string) {
+	{{ signals, _ := json.Marshal(map[string]any{"email": view.Email, "emailVerify": view.VerifyEmail, "error": "", "errorForm": "", "notice": "", "pending": "", "refreshSessions": false, "redirect": "", "failure": tr("web.update_error")}) }}
+	<section data-signals={ string(signals) } data-on:datastar-fetch="if (evt.detail.type === 'error') $error = $failure" data-effect="if ($redirect && new URL($redirect, location.href).origin === location.origin) location.assign($redirect)">
+		<header>
+			<hgroup><p class="primary">{ tr("web.workspace") }</p><h1>{ tr("web.account_overview") }</h1><p data-text="$email">{ view.Email }</p></hgroup>
+		</header>
+		if view.Notice!="" {
+			if view.Failed {
+				<blockquote class="alert" role="alert">{ view.Notice }</blockquote>
+			} else {
+				<blockquote class="tip" role="status">{ view.Notice }</blockquote>
+			}
+		}
+		<blockquote class="warn" role="alert" hidden data-attr:hidden="!$error || !!$errorForm" data-text="$error"></blockquote>
+		<p role="status" hidden data-attr:hidden="!$notice" data-text="$notice"></p>
+		<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:1rem">
+			@emailChange(action, home, view.VerifyEmail, tr)
+			@Sessions(action, home, next, sessions, tr, language)
+		</div>
+		<section>
+			<hgroup><strong>{ tr("web.account_security") }</strong><p>{ tr("web.account_security_help") }</p></hgroup>
+			<p><span class="tag green">{ tr("web.passwordless") }</span> <span class="tag blue">{ tr("web.session_controls") }</span></p>
+			<details><summary>{ tr("web.email_change_explained") }</summary><p>{ tr("web.email_change_explanation") }</p></details>
+			<details><summary>{ tr("web.session_explained") }</summary><p>{ tr("web.session_explanation") }</p></details>
+		</section>
+	</section>
+}

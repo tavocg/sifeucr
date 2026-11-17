@@ -14,3 +14,10 @@ func Ping(ctx context.Context, ping func(context.Context) error) error {
 	defer cancel()
 	return ping(ctx)
 }
+
+// OpenOptions controls process-local resources and startup schema ownership.
+// SkipMigrations requires the exact schema shipped with this binary.
+type OpenOptions struct {
+	SkipMigrations bool
+	MaxConnections int
+}

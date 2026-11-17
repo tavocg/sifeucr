@@ -2,6 +2,8 @@ name: Build
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '0 9 * * 1'
 permissions:
   contents: read
 
@@ -11,7 +13,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: sifeucr_test
@@ -21,7 +23,7 @@ jobs:
           --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d sifeucr_test"
           --health-interval 10s --health-timeout 5s --health-retries 10
       mysql:
-        image: mysql:8.4
+        image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
         env:
           MYSQL_ROOT_PASSWORD: mysql
           MYSQL_DATABASE: sifeucr_test
@@ -31,21 +33,28 @@ jobs:
           --health-cmd "mysql --protocol=TCP -h 127.0.0.1 -uroot -pmysql -e 'SELECT 1' sifeucr_test"
           --health-interval 10s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Setup
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install documentation dependencies
+        run: npm ci
+
+      - name: Generate code and assets
+        run: go generate ./...
+
+      - name: Install release tools
         run: |
-          npm ci
-          go generate ./...
           sudo apt-get update
           sudo apt-get install -y upx-ucl
 
@@ -65,9 +74,32 @@ jobs:
             upx --best sifeucr-linux-$arch
           done
 
+      - name: Build container image
+        run: |
+          docker build --tag sifeucr:ci-web .
+          docker run --rm --entrypoint nginx sifeucr:ci-web -t
+          docker build --target sifeucr --tag sifeucr:ci .
+
+      - name: Scan runtime images
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy"
+          for image in sifeucr:ci-web sifeucr:ci; do
+            docker save "$image" -o "$RUNNER_TEMP/trivy/image.tar"
+            docker run --rm \
+              --mount type=bind,src="$RUNNER_TEMP/trivy",dst=/scan \
+              aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+              image --cache-dir /scan/cache --scanners vuln \
+              --severity HIGH,CRITICAL --exit-code 1 --input /scan/image.tar
+          done
+
+      - name: Test independent replicas
+        run: python3 contrib/test-multi-instance.py
+        env:
+          SIFEUCR_TEST_IMAGE: sifeucr:ci
+
       - name: Store release binaries
         if: github.event_name == 'push' && github.ref_type == 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sifeucr-linux
           path: sifeucr-linux-*
@@ -81,11 +113,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sifeucr-linux
           path: dist
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           fail_on_unmatched_files: true
           files: |

@@ -1,0 +1,11 @@
+package templates
+
+templ FormWarning(message string) {
+ if message != "" {
+  <blockquote class="warn" role="alert">{ message }</blockquote>
+ }
+}
+
+templ FormError(id string) {
+ <blockquote class="warn" role="alert" hidden data-attr:hidden={ "!$error || $errorForm !== '" + id + "'" } data-text="$error"></blockquote>
+}

@@ -12,18 +12,25 @@ import (
 	"sifeucr/database/sqlite"
 )
 
-func Open(ctx context.Context, connStr string) (database.Database, error) {
+func Open(ctx context.Context, connStr string, settings ...database.OpenOptions) (database.Database, error) {
 	if connStr == "" {
 		return nil, fmt.Errorf("empty connection string")
 	}
 
+	var options database.OpenOptions
+	if len(settings) > 0 {
+		options = settings[0]
+	}
+	if options.MaxConnections < 0 || int64(options.MaxConnections) > 2147483647 {
+		return nil, fmt.Errorf("invalid maximum database connections")
+	}
 	switch {
 	case isPostgresConnStr(connStr):
-		return postgres.NewPostgres(ctx, connStr)
+		return postgres.Open(ctx, connStr, options)
 	case isMySQLConnStr(connStr):
-		return mysql.NewMySQL(ctx, connStr)
+		return mysql.Open(ctx, connStr, options)
 	default:
-		return sqlite.NewSQLite(ctx, connStr, sqlite.WithForeignKeys())
+		return sqlite.Open(ctx, connStr, options, sqlite.WithForeignKeys())
 	}
 }
 

@@ -1,0 +1,9 @@
+package home
+
+templ timestamp(language string, value int64, withTime bool) {
+	if value == 0 {
+		{ "—" }
+	} else {
+		<time datetime={ isoTimestamp(value) } data-language={ language } data-clock?={ withTime } data-text="new Intl.DateTimeFormat(el.dataset.language, {month:'short',day:'numeric',year:new Date(el.dateTime).getFullYear() === new Date().getFullYear() ? undefined : 'numeric', ...(el.hasAttribute('data-clock') ? {hour:'numeric',minute:'2-digit',hour12:true} : {})}).format(new Date(el.dateTime))">{ date(language, value, withTime) + " UTC" }</time>
+	}
+}

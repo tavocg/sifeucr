@@ -1,14 +1,22 @@
 package base
 
+import "sifeucr/routes"
+
 type PageParams struct {
-	Head HeadParams
-	Body BodyParams
+	Nonce string
+	Links routes.Links
+	Head  HeadParams
+	Body  BodyParams
 }
 
 templ Page(page PageParams) {
 	<!DOCTYPE html>
-	<html>
-		@head(page.Head)
-		@body(page.Body)
+	{{ attrs := templ.Attributes{}
+if page.Nonce != "" {
+	attrs["data-nonce"] = page.Nonce
+} }}
+	<html { attrs... }>
+		@head(page.Head, page.Links, page.Nonce != "")
+		@body(page.Body, page.Links)
 	</html>
 }

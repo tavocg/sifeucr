@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"sifeucr/internal/httpx"
 	"sifeucr/internal/logging"
@@ -9,6 +10,12 @@ import (
 )
 
 func (h *Handler) route(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+	if h.options(w, r) {
+		return
+	}
 	h.mux.ServeHTTP(&routingErrorWriter{ResponseWriter: w, handler: h, request: r}, r)
 }
 
@@ -33,6 +40,9 @@ func (w *routingErrorWriter) WriteHeader(status int) {
 	}
 	key, message := "err.route_not_found", "route not found"
 	if status == http.StatusMethodNotAllowed {
+		if allow := w.Header().Get("Allow"); allow != "" && !strings.Contains(allow, "OPTIONS") {
+			w.Header().Set("Allow", allow+", OPTIONS")
+		}
 		key, message = "err.method_not_allowed", "method not allowed"
 	}
 	w.replaced = true
@@ -44,10 +54,11 @@ func (h *Handler) writeRoutingError(w http.ResponseWriter, r *http.Request, stat
 		w.Header().Add("Vary", "Accept, Accept-Language")
 		w.Header().Set("Cache-Control", "no-store")
 		if httpx.Negotiate(r, "application/json; charset=utf-8", "text/html; charset=utf-8") == "text/html; charset=utf-8" {
+			documentHeaders(w)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(status)
 			h.logger.Debug(message, logging.RequestArgs(r, status)...)
-			if err := errorpage.NotFound(h.localize(r, key)).Render(r.Context(), w); err != nil {
+			if err := errorpage.NotFound(h.localize(r, key), h.links).Render(r.Context(), w); err != nil {
 				h.logger.Error("failed to render not found page", logging.RequestArgs(r, status, "error", err)...)
 			}
 			return

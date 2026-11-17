@@ -6,6 +6,14 @@ sifeucr
 data/
 *.html
 *_templ.go
+/templates/stylesheet_generated.go
+/templates/datastar_generated.go
+/handlers/static/css/semantic.*.css
+/handlers/static/css/semantic*.LICENSE.txt
 
 .env
 .codex
+
+/handlers/static/js/
+
+/tmp/

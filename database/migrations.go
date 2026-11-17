@@ -99,3 +99,27 @@ func ApplyMigrations(ctx context.Context, files fs.FS, versions MigrationVersion
 	}
 	return nil
 }
+
+// PrepareSchema either runs the backend's locked migrator or checks the schema
+// without DDL privileges. Exact versions deliberately reject unreviewed upgrades.
+func PrepareSchema(ctx context.Context, files fs.FS, version func(context.Context) (int64, error), migrate func(context.Context) error, skip bool) error {
+	if !skip {
+		return migrate(ctx)
+	}
+	migrations, err := ReadMigrations(files)
+	if err != nil {
+		return err
+	}
+	current, err := version(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema version (run sifeucr migrate first): %w", err)
+	}
+	var expected int64
+	if len(migrations) > 0 {
+		expected = migrations[len(migrations)-1].Version
+	}
+	if current != expected {
+		return fmt.Errorf("schema version %d, expected %d; deploy a compatible schema and binary", current, expected)
+	}
+	return nil
+}

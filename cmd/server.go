@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tavocg/go-i18n"
+	secrets "github.com/tavocg/go-secrets"
+	"github.com/tavocg/go-secrets/otp"
 	"sifeucr/auth"
 	"sifeucr/cache/memory"
 	"sifeucr/database"
@@ -20,14 +23,20 @@ import (
 	"sifeucr/database/provider"
 	"sifeucr/handlers"
 	locales "sifeucr/i18n"
-	"sifeucr/mailer/noop"
-	"github.com/tavocg/go-i18n"
-	secrets "github.com/tavocg/go-secrets"
-	"github.com/tavocg/go-secrets/otp"
+	"sifeucr/internal/health"
 )
 
 type serverConfig struct {
+	SMTPAddress     string
+	SMTPUser        string
+	SMTPPassword    string
+	SMTPStartTLS    bool
+	DrainDelay      time.Duration
+	ShutdownTimeout time.Duration
 	DatabaseDSN     string
+	AutoMigrate     bool
+	MaxConnections  int
+	CacheEnabled    bool
 	Dev             bool
 	LogLevel        string
 	LogFormat       string
@@ -36,15 +45,27 @@ type serverConfig struct {
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	RootPrefix      string
+	CORSOrigins     []string
+	CSRFOrigins     []string
 	MailFrom        string
 	Host            string
 	Port            int
 }
 
 func runServer(cfg serverConfig) error {
+	if cfg.Dev {
+		cfg.DrainDelay = 0
+	}
+	if cfg.DrainDelay < 0 || cfg.ShutdownTimeout <= 0 || cfg.MaxConnections < 1 {
+		return errors.New("drain delay must be nonnegative; shutdown timeout and database connections must be positive")
+	}
+
 	logger, err := newLogger(cfg.Dev, cfg.LogLevel, cfg.LogFormat)
 	if err != nil {
 		return err
+	}
+	if cfg.Dev {
+		logger.Warn("development mode allows all origins, bypasses browser CSRF checks and logs plaintext OTPs at debug level")
 	}
 
 	otpSecret, err := resolveOTPSecret(cfg, logger)
@@ -61,17 +82,15 @@ func runServer(cfg serverConfig) error {
 	defer stop()
 
 	var db database.Database
-	db, err = provider.Open(ctx, cfg.DatabaseDSN)
+	db, err = provider.Open(ctx, cfg.DatabaseDSN, database.OpenOptions{SkipMigrations: !cfg.AutoMigrate, MaxConnections: cfg.MaxConnections})
 	if err != nil {
 		return err
 	}
-	cacheStore := memory.New()
-	defer func() {
-		if err := cacheStore.Close(); err != nil {
-			logger.Error("cache close error", "error", err)
-		}
-	}()
-	db = cached.New(db, cacheStore)
+	if cfg.CacheEnabled {
+		cacheStore := memory.New()
+		defer cacheStore.Close()
+		db = cached.New(db, cacheStore)
+	}
 	defer func() {
 		if err := db.Close(); err != nil {
 			logger.Error("database close error", "error", err)
@@ -88,7 +107,13 @@ func runServer(cfg serverConfig) error {
 		return err
 	}
 
-	// Replace the noop provider below with a go-email SMTP or Mailgun client.
+	mailer, err := newMailer(cfg)
+	if err != nil {
+		return err
+	}
+	if cfg.SMTPAddress == "" {
+		logger.Warn("SMTP is not configured; verification emails will be discarded")
+	}
 	h, err := handlers.NewHandler(handlers.Options{
 		Logger:        logger,
 		Dev:           cfg.Dev,
@@ -96,7 +121,9 @@ func runServer(cfg serverConfig) error {
 		Authenticator: authenticator,
 		Localizer:     localizer,
 		RootPrefix:    cfg.RootPrefix,
-		Mailer:        noop.Mailer{},
+		CORSOrigins:   cfg.CORSOrigins,
+		CSRFOrigins:   cfg.CSRFOrigins,
+		Mailer:        mailer,
 		MailFrom:      cfg.MailFrom,
 		OTPSigner:     otpSigner,
 	})
@@ -106,7 +133,7 @@ func runServer(cfg serverConfig) error {
 
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Handler:           h,
+		Handler:           health.New(ctx, db.Ping, h),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -126,7 +153,7 @@ func runServer(cfg serverConfig) error {
 	defer stopMaintenance()
 
 	logger.Info("listening", "addr", listener.Addr().String())
-	return serveHTTP(ctx, srv, listener)
+	return serveHTTP(ctx, srv, listener, cfg.DrainDelay, cfg.ShutdownTimeout)
 }
 
 // resolveOTPSecret enforces the signing-secret policy and returns the effective

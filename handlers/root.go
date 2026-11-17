@@ -4,17 +4,14 @@ import (
 	"net/http"
 
 	"sifeucr/internal/httpx"
+	"sifeucr/routes"
 	"sifeucr/templates/base"
 	"sifeucr/templates/meta"
 	"sifeucr/templates/root"
 )
 
 func (h *Handler) registerRootRoutes() {
-	route := "/"
-	if h.rootPrefix == "" {
-		route = "/{$}"
-	}
-	h.Add(http.MethodGet, route, h.Root)
+	h.AddRoute(routes.Root, http.HandlerFunc(h.Root))
 }
 
 func (h *Handler) Root(w http.ResponseWriter, r *http.Request) {
@@ -26,15 +23,18 @@ func (h *Handler) Root(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if contentType == "text/html; charset=utf-8" {
+		documentHeaders(w)
 		w.Header().Set("Content-Type", contentType)
 		page := base.Page(base.PageParams{
+			Links: h.links,
 			Head: base.HeadParams{
 				Title:       meta.AppTitle,
-				Subtitle:    L("root.greeting"),
+				Subtitle:    L("root.title"),
+				Description: L("root.description"),
 				RobotsIndex: true,
 			},
 			Body: base.BodyParams{
-				Content: root.RootMain(L),
+				Content: root.RootMain(h.links, L),
 			},
 		})
 

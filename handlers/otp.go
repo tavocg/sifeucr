@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -62,4 +63,19 @@ func (h *Handler) allowOTPVerification(w http.ResponseWriter, r *http.Request, p
 
 func (h *Handler) signOTP(purpose otpPurpose, identity, code string) string {
 	return h.otpSigner.Sign(string(purpose), identity, code)
+}
+
+// Check after charging the verification budget, before HMAC and challenge SQL.
+func (h *Handler) checkOTP(w http.ResponseWriter, r *http.Request, code, key string) bool {
+	if len(code) == 6 && strings.Trim(code, "0123456789") == "" {
+		return true
+	}
+	h.writeStatus(
+		w,
+		r,
+		http.StatusUnauthorized,
+		key,
+		"invalid verification code format",
+	)
+	return false
 }

@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tavocg/go-i18n"
+	"github.com/tavocg/go-secrets/otp"
 	"sifeucr/auth"
 	"sifeucr/database/sqlite"
 	locales "sifeucr/i18n"
 	"sifeucr/mailer/noop"
-	"github.com/tavocg/go-i18n"
-	"github.com/tavocg/go-secrets/otp"
+	"sifeucr/routes"
+	"sifeucr/templates"
 )
 
 func testLogger() *slog.Logger {
@@ -83,6 +85,9 @@ func TestRoutesUseRootPrefix(t *testing.T) {
 		wantAllow    bool
 		wantLocation string
 	}{
+		{name: "browser login", method: "GET", path: "/api/login", wantStatus: 200, wantBody: `action="/api/login"`},
+		{name: "pinned Datastar", method: "GET", path: "/api/s/" + templates.DatastarScriptPath, wantStatus: 200},
+		{name: "protected browser home", method: "GET", path: "/api/home", wantStatus: 303, wantLocation: "/api/login"},
 		{
 			name:       "root JSON",
 			method:     http.MethodGet,
@@ -135,6 +140,14 @@ func TestRoutesUseRootPrefix(t *testing.T) {
 			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
 				t.Errorf("body = %q, want containing %q", rec.Body.String(), tt.wantBody)
 			}
+			if tt.name == "browser login" {
+				if strings.Contains(rec.Body.String(), "<script") {
+					t.Error("ordinary login must not load scripts")
+				}
+				if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "'"+templates.NativeBusyHash+"'") {
+					t.Error("login CSP did not authorize the native busy handler")
+				}
+			}
 			if tt.wantJSON {
 				if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 					t.Errorf("Content-Type = %q, want application/json", got)
@@ -143,14 +156,69 @@ func TestRoutesUseRootPrefix(t *testing.T) {
 					t.Errorf("Cache-Control = %q, want no-store", got)
 				}
 			}
-			if tt.wantAllow && rec.Header().Get("Allow") != "GET, HEAD" {
-				t.Errorf("Allow = %q, want GET, HEAD", rec.Header().Get("Allow"))
+			if tt.wantAllow && rec.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Errorf("Allow = %q, want GET, HEAD, OPTIONS", rec.Header().Get("Allow"))
 			}
 			if tt.wantLocation != "" && rec.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("Location = %q, want %q", rec.Header().Get("Location"), tt.wantLocation)
 			}
 		})
 	}
+	t.Run("named routes and CORS", func(t *testing.T) {
+		opts := testHandlerOptions(t, "/api")
+		opts.CORSOrigins = []string{"https://default.example"}
+		h, err := NewHandler(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		link, err := h.URL(routes.APIDocs)
+		if err != nil || link != "/api/s/api/" {
+			t.Fatalf("docs link = %q, %v", link, err)
+		}
+		if _, err := h.URL(routes.RevokeSession); err == nil {
+			t.Fatal("missing parameter accepted")
+		}
+		delete(h.namedRoutes, routes.Login)
+		if err := h.validateRoutes(); err == nil {
+			t.Fatal("missing route accepted")
+		}
+		h.namedRoutes[routes.Login] = true
+		endpoint := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }
+		h.Add("GET", "/cors", endpoint)
+		h.Add("POST", "/cors", endpoint, RouteOptions{CORSOrigins: []string{"https://override.example"}})
+		h.Add("GET", "/disabled", endpoint, RouteOptions{CORSOrigins: []string{}})
+		for _, tc := range []struct {
+			method, path, origin, requested, headers string
+			status                                   int
+			cors                                     bool
+		}{
+			{"GET", "/api/cors", "https://default.example", "", "", 204, true},
+			{"POST", "/api/cors", "https://default.example", "", "", 204, false},
+			{"POST", "/api/cors", "https://override.example", "", "", 204, true},
+			{"GET", "/api/disabled", "https://default.example", "", "", 204, false},
+			{"OPTIONS", "/api/cors", "", "", "", 204, false},
+			{"OPTIONS", "/api/cors", "https://default.example", "GET", "Authorization, Content-Type", 204, true},
+			{"OPTIONS", "/api/cors", "https://default.example", "POST", "", 403, false},
+			{"OPTIONS", "/api/cors", "https://override.example", "POST", "", 204, true},
+			{"OPTIONS", "/api/cors", "https://override.example", "DELETE", "", 403, false},
+			{"OPTIONS", "/api/cors", "https://default.example", "GET", "X-Not-Allowed", 403, false},
+			{"OPTIONS", "/api/disabled", "https://default.example", "GET", "", 403, false},
+			{"OPTIONS", "/api/account", "https://default.example", "GET", "Authorization", 204, true},
+			{"OPTIONS", "/cors", "https://default.example", "GET", "", 404, false},
+			{"OPTIONS", "/api/missing", "https://default.example", "GET", "", 404, false},
+		} {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("Origin", tc.origin)
+			req.Header.Set("Access-Control-Request-Method", tc.requested)
+			req.Header.Set("Access-Control-Request-Headers", tc.headers)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.status || (rec.Header().Get("Access-Control-Allow-Origin") != "") != tc.cors {
+				t.Fatalf("%+v: status %d, headers %v", tc, rec.Code, rec.Header())
+			}
+		}
+	})
+
 }
 
 func TestRootWithoutPrefix(t *testing.T) {
@@ -167,6 +235,44 @@ func TestRootWithoutPrefix(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown route status = %d, want 404", rec.Code)
 	}
+	// Independent handlers must render and serve their own links, including on 404.
+	handlers := []*Handler{newRoutingHandler(t, ""), newRoutingHandler(t, "/api"), newRoutingHandler(t, "/other")}
+	for _, h := range handlers {
+		rootURL, _ := h.URL(routes.Root)
+		docsURL, _ := h.URL(routes.APIDocs)
+		cssURL, err := templates.SemanticStylesheetURL(h.links)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, page := range []struct {
+			path   string
+			status int
+		}{
+			{rootURL, 200}, {h.links.Mount("/missing/deep/path"), 404},
+		} {
+			req := httptest.NewRequest("GET", page.path, nil)
+			req.Header.Set("Accept", "text/html")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != page.status || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
+				t.Fatalf("page %s: %d %s", page.path, rec.Code, rec.Body.String())
+			}
+			if strings.Count(rec.Body.String(), `<style id="semantic-style">`) != 1 {
+				t.Fatalf("page %s must include the stylesheet exactly once", page.path)
+			}
+			if !strings.Contains(rec.Body.String(), `href="`+docsURL+`"`) {
+				t.Fatalf("page %s missing link %q", page.path, docsURL)
+			}
+		}
+		for _, link := range []string{docsURL, cssURL} {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest("GET", link, nil))
+			if rec.Code != 200 {
+				t.Fatalf("linked resource %s: %d", link, rec.Code)
+			}
+		}
+	}
+
 }
 
 func TestRouteParametersAndResponseController(t *testing.T) {
@@ -186,7 +292,7 @@ func TestRouteParametersAndResponseController(t *testing.T) {
 	}
 }
 
-func TestNormalizeRootPrefix(t *testing.T) {
+func TestLinksRootPrefix(t *testing.T) {
 	tests := []struct {
 		name    string
 		prefix  string
@@ -215,18 +321,22 @@ func TestNormalizeRootPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := normalizeRootPrefix(tt.prefix)
+			links, err := routes.NewLinks(tt.prefix)
+			got, _ := links.URL(routes.Root)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("normalizeRootPrefix(%q) = %q, want error", tt.prefix, got)
+					t.Fatalf("NewLinks(%q) = %q, want error", tt.prefix, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("normalizeRootPrefix(%q): %v", tt.prefix, err)
+				t.Fatalf("NewLinks(%q): %v", tt.prefix, err)
+			}
+			if tt.want == "" {
+				tt.want = "/"
 			}
 			if got != tt.want {
-				t.Errorf("normalizeRootPrefix(%q) = %q, want %q", tt.prefix, got, tt.want)
+				t.Errorf("NewLinks(%q) = %q, want %q", tt.prefix, got, tt.want)
 			}
 		})
 	}
@@ -260,7 +370,7 @@ func TestRoutingErrorWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("preserves Allow on router 405", func(t *testing.T) {
+	t.Run("includes automatic OPTIONS on router 405", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api", nil)
 		w := &routingErrorWriter{ResponseWriter: rec, handler: h, request: req}
@@ -271,8 +381,8 @@ func TestRoutingErrorWriter(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("status = %d, want 405", rec.Code)
 		}
-		if got := rec.Header().Get("Allow"); got != "GET" {
-			t.Errorf("Allow = %q, want GET", got)
+		if got := rec.Header().Get("Allow"); got != "GET, OPTIONS" {
+			t.Errorf("Allow = %q, want GET, OPTIONS", got)
 		}
 	})
 

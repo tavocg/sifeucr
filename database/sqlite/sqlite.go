@@ -26,6 +26,11 @@ type OptFunc func(url.Values)
 var _ database.Database = (*SQLite)(nil)
 
 func NewSQLite(ctx context.Context, connStr string, opts ...OptFunc) (*SQLite, error) {
+	return Open(ctx, connStr, database.OpenOptions{}, opts...)
+}
+
+// Open connects with explicit startup options.
+func Open(ctx context.Context, connStr string, options database.OpenOptions, opts ...OptFunc) (*SQLite, error) {
 	filename, query, _ := strings.Cut(connStr, "?")
 	params, err := url.ParseQuery(query)
 	if err != nil {
@@ -56,7 +61,7 @@ func NewSQLite(ctx context.Context, connStr string, opts ...OptFunc) (*SQLite, e
 		return nil, err
 	}
 
-	if err := applyMigrations(ctx, conn); err != nil {
+	if err := database.PrepareSchema(ctx, migrationFiles, db.New(conn).GetSchemaMigrationVersion, func(ctx context.Context) error { return applyMigrations(ctx, conn) }, options.SkipMigrations); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -103,3 +108,5 @@ func (s *SQLite) IsErrNotFound(err error) bool {
 func (s *SQLite) Close() error {
 	return s.db.Close()
 }
+
+func (p *SQLite) Ping(ctx context.Context) error { return p.db.PingContext(ctx) }

@@ -6,10 +6,14 @@
   "type": "commonjs",
   "private": true,
   "scripts": {
-    "redocly": "redocly build-docs docs/api.yaml --output handlers/static/api/index.html >/dev/null 2>&1",
+    "redocly": "redocly build-docs docs/api.yaml --output handlers/static/api/index.html",
     "test": "go test ./..."
   },
   "devDependencies": {
     "@redocly/cli": "^2.30.3"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
   }
 }

@@ -11,7 +11,7 @@ import (
 
 // serveHTTP drains active requests on cancellation or listener failure before
 // returning to the caller, which owns the database and other dependencies.
-func serveHTTP(ctx context.Context, srv *http.Server, listener net.Listener) error {
+func serveHTTP(ctx context.Context, srv *http.Server, listener net.Listener, drainDelay, shutdownTimeout time.Duration) error {
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- srv.Serve(listener) }()
 
@@ -19,12 +19,20 @@ func serveHTTP(ctx context.Context, srv *http.Server, listener net.Listener) err
 	serveFinished := false
 	select {
 	case <-ctx.Done():
+		// Readiness is already withdrawn. Keep serving while routing updates propagate.
+		timer := time.NewTimer(drainDelay)
+		select {
+		case <-timer.C:
+		case serveErr = <-serveErrors:
+			serveFinished = true
+		}
+		timer.Stop()
 	case serveErr = <-serveErrors:
 		serveFinished = true
 	}
 
 	// The request to stop must not cancel the graceful shutdown deadline.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	if shutdownErr != nil {

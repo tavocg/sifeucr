@@ -1,0 +1,8 @@
+package home
+
+templ device(session Session, tr func(string) string) {
+ { session.Label(tr) }
+ if session.Current {
+  <span class="tag info">{ tr("web.current") }</span>
+ }
+}

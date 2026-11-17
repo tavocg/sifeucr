@@ -30,6 +30,37 @@ rotates the account generation. Requests authenticated before revocation may
 finish. After closing the current session, discard its credentials locally;
 a fresh login can create another session.
 
+Refresh-based revocation resolves the session before acquiring the account lock,
+then deletes by its stable identifier in that transaction. It therefore also
+revokes a replacement refresh issued between lookup and locking. Consumed hashes
+also identify that session until the original refresh/access credentials expire.
+For legacy non-expiring refreshes, retention uses one configured refresh TTL from
+consumption or the original access expiry, whichever is later. Unknown or expired
+references remain an idempotent no-op.
+
+Rotation writes the consumed hash and its account/session generation in the same
+transaction as consumption and replacement. It stores no plaintext credentials.
+Retained hashes only permit revocation: reusing one to refresh still returns 401
+and does not automatically terminate the successor. This avoids treating a
+legitimate duplicate request as grounds to close the session; it also means replay
+does not automatically contain an attacker who already obtained the successor.
+Recovery after a lost successful refresh response still requires login.
+
+Maintenance drains expired references in batches of 100 under its existing time
+budget. Account deletion cascades to these references. Each successful rotation
+adds one row, retained until its original expiry even if the session closes sooner;
+size therefore depends on rotation frequency and credential TTLs. Monitor this
+table alongside other expired-record backlogs.
+
+## Deploying migration 20261114000
+
+Stop old application writers before upgrading. The additive migration creates
+`consumed_refresh_tokens` without changing existing sessions or credentials. Hashes
+consumed by an old binary before deployment cannot be recovered; retention covers
+rotations made by the upgraded application. Run `sifeucr migrate` with migration
+credentials before starting replicas with auto-migration disabled. MySQL's pending
+migration recovery procedure still applies.
+
 ## Deploying migration 20261108000
 
 Stop old application versions before starting the upgraded application. The

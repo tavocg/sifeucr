@@ -150,6 +150,14 @@ func TestSettingsDefaults(t *testing.T) {
 	if got := viper.GetString("db"); got != "data/sifeucr.sqlite" {
 		t.Errorf("db default = %q, want data/sifeucr.sqlite", got)
 	}
+	t.Setenv("SIFEUCR_CORS_ORIGINS", "https://one.example,https://two.example")
+	viper.SetEnvPrefix("SIFEUCR")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.AutomaticEnv()
+	if got := configuredCORSOrigins(); len(got) != 2 || got[0] != "https://one.example" || got[1] != "https://two.example" {
+		t.Fatalf("CORS environment = %v", got)
+	}
+
 }
 
 func TestResolveOTPSecret(t *testing.T) {

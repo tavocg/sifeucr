@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"sifeucr/database"
 	"sifeucr/database/postgres/db"
 	"sifeucr/database/postgres/queries"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Postgres struct {
@@ -20,6 +20,11 @@ type Postgres struct {
 var _ database.Database = (*Postgres)(nil)
 
 func NewPostgres(ctx context.Context, connStr string) (*Postgres, error) {
+	return Open(ctx, connStr, database.OpenOptions{})
+}
+
+// Open connects with explicit startup options.
+func Open(ctx context.Context, connStr string, options database.OpenOptions) (*Postgres, error) {
 	cfg, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, err
@@ -27,6 +32,9 @@ func NewPostgres(ctx context.Context, connStr string) (*Postgres, error) {
 	// Pool connection attempts can outlive a canceled acquisition.
 	if cfg.ConnConfig.ConnectTimeout <= 0 {
 		cfg.ConnConfig.ConnectTimeout = database.ConnectTimeout
+	}
+	if options.MaxConnections > 0 {
+		cfg.MaxConns = int32(options.MaxConnections)
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -38,7 +46,7 @@ func NewPostgres(ctx context.Context, connStr string) (*Postgres, error) {
 		return nil, err
 	}
 
-	if err := applyMigrations(ctx, pool); err != nil {
+	if err := database.PrepareSchema(ctx, migrationFiles, db.New(pool).GetSchemaMigrationVersion, func(ctx context.Context) error { return applyMigrations(ctx, pool) }, options.SkipMigrations); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -76,3 +84,5 @@ func (p *Postgres) Close() error {
 	p.pool.Close()
 	return nil
 }
+
+func (p *Postgres) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }

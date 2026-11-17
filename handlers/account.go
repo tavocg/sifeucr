@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
+	secrets "github.com/tavocg/go-secrets"
 	"sifeucr/database"
 	"sifeucr/internal/httpx"
 	"sifeucr/middleware"
-	secrets "github.com/tavocg/go-secrets"
+	"sifeucr/routes"
 )
 
 type accountResponse struct {
@@ -34,22 +35,20 @@ func (h *Handler) registerAccountRoutes() {
 		return middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, next)
 	}
 	canChangeEmail := func(fn http.HandlerFunc) http.Handler {
-		return authenticated(middleware.RequirePermission(
-			h.logger,
-			h.localize,
-			h.db.Querier(),
-			database.PermissionChangeEmail,
-			fn,
-		))
+		return authenticated(h.requireEmailChangePermission(fn))
 	}
 
-	h.AddHandler(http.MethodGet, "/account", authenticated(http.HandlerFunc(h.GetAccount)))
-	h.AddHandler(http.MethodDelete, "/account", authenticated(http.HandlerFunc(h.DeleteAccount)))
-	h.AddHandler(http.MethodGet, "/account/sessions", authenticated(http.HandlerFunc(h.ListSessions)))
-	h.AddHandler(http.MethodDelete, "/account/sessions", authenticated(http.HandlerFunc(h.RevokeSessions)))
-	h.AddHandler(http.MethodDelete, "/account/sessions/{id}", authenticated(http.HandlerFunc(h.RevokeSession)))
-	h.AddHandler(http.MethodPatch, "/account/email/change", canChangeEmail(h.RequestEmailChange))
-	h.AddHandler(http.MethodPatch, "/account/email/change/confirm", canChangeEmail(h.ConfirmEmailChange))
+	h.AddRoute(routes.Account, authenticated(http.HandlerFunc(h.GetAccount)))
+	h.AddRoute(routes.DeleteAccount, authenticated(http.HandlerFunc(h.DeleteAccount)))
+	h.AddRoute(routes.Sessions, authenticated(http.HandlerFunc(h.ListSessions)))
+	h.AddRoute(routes.RevokeSessions, authenticated(http.HandlerFunc(h.RevokeSessions)))
+	h.AddRoute(routes.RevokeSession, authenticated(http.HandlerFunc(h.RevokeSession)))
+	h.AddRoute(routes.ChangeEmail, canChangeEmail(h.RequestEmailChange))
+	h.AddRoute(routes.ConfirmEmail, canChangeEmail(h.ConfirmEmailChange))
+}
+
+func (h *Handler) requireEmailChangePermission(next http.Handler) http.Handler {
+	return middleware.RequirePermission(h.logger, h.localize, h.db.Querier(), database.PermissionChangeEmail, next)
 }
 
 func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
@@ -141,8 +140,6 @@ func (h *Handler) RequestEmailChange(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest,
 			"err.invalid_email_change",
 			"invalid account email change target",
-			"email",
-			req.NewEmail,
 			"sub",
 			sub,
 		)
@@ -163,8 +160,6 @@ func (h *Handler) RequestEmailChange(w http.ResponseWriter, r *http.Request) {
 			"account email change target matches current email",
 			"sub",
 			sub,
-			"email",
-			newEmail,
 		)
 		return
 	}
@@ -199,8 +194,6 @@ func (h *Handler) RequestEmailChange(w http.ResponseWriter, r *http.Request) {
 			"failed to upsert account email change request",
 			"sub",
 			sub,
-			"email",
-			newEmail,
 		)
 		return
 	}
@@ -209,7 +202,7 @@ func (h *Handler) RequestEmailChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Debug("generated account email change otp", "sub", sub, "email", newEmail, "otp", maskedOTP(h.dev, code), "expires_at", expiresAt)
+	h.logger.Debug("generated account email change otp", "sub", sub, "email", developmentValue(h.dev, newEmail), "otp", developmentValue(h.dev, code), "expires_at", expiresAt)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -230,6 +223,10 @@ func (h *Handler) ConfirmEmailChange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !h.allowOTPVerification(w, r, otpPurposeEmailChange, subject) {
+		return
+	}
+
+	if !h.checkOTP(w, r, req.OTP, "err.invalid_email_change_otp") {
 		return
 	}
 

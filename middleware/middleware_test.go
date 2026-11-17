@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	goauth "github.com/tavocg/go-auth"
 	appauth "sifeucr/auth"
 	"sifeucr/middleware"
-	goauth "github.com/tavocg/go-auth"
 )
 
 type fakeAuthenticator struct {

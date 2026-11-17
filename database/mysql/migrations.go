@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"sifeucr/database"
 	"sifeucr/database/mysql/db"
 )
@@ -19,7 +20,21 @@ const (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-func applyMigrations(ctx context.Context, conn *sql.DB) error {
+func applyMigrations(ctx context.Context, cfg *mysqldriver.Config) error {
+	// Migration files contain multiple statements. Never return this connection
+	// to the runtime pool, including after failed or interrupted migrations.
+	cfg = cfg.Clone()
+	cfg.MultiStatements = true
+	connector, err := mysqldriver.NewConnector(cfg)
+	if err != nil {
+		return err
+	}
+	conn := sql.OpenDB(connector)
+	conn.SetMaxOpenConns(1)
+	defer func() { _ = conn.Close() }()
+	if err := database.Ping(ctx, conn.PingContext); err != nil {
+		return err
+	}
 	c, err := conn.Conn(ctx)
 	if err != nil {
 		return err

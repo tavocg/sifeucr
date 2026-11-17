@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"sifeucr/database"
-	"sifeucr/database/sqlite/db"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
+	"sifeucr/database"
+	"sifeucr/database/sqlite/db"
 )
 
 func (q *SQLiteQuerier) EnsureAccountByEmail(ctx context.Context, email string, createdAt int64) (sub int64, err error) {

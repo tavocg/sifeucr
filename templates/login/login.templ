@@ -1,0 +1,38 @@
+package login
+
+import "sifeucr/templates"
+
+templ Login(action, email, message string, verify, resume bool, tr func(string) string) {
+	<section>
+		if resume {
+			<div class="card" aria-busy="true" role="status">{ tr("web.resuming") }</div>
+			<form id="session-restore" hidden method="post" action={ action } data-auto-resume data-signals="{pending:'',error:'',notice:'',failure:'restore failed',errorForm:'',refreshSessions:false}" data-init={ "(async () => { if (document.prerendering) {document.addEventListener('prerenderingchange',()=>location.reload(),{once:true});} else if (!navigator.locks) {location.replace(el.getAttribute('action')+'?resume=0');} else { await " + templates.Submit + "; if ($error) location.replace(el.getAttribute('action')+'?resume=0'); } })()" }>
+				<input type="hidden" name="action" value="resume"/>
+			</form>
+			<noscript><a href={ action + "?resume=0" }>{ tr("web.login") }</a></noscript>
+		}
+		<form style="max-width:36rem;margin-inline:auto" onsubmit={ templ.JSUnsafeFuncCall(templates.NativeBusy) } hidden?={ resume } method="post" action={ action }>
+			<h1>{ tr("web.login") }</h1>
+			if verify {
+				<input type="hidden" name="action" value="verify"/>
+				<label for="login-email">{ tr("web.email") }</label>
+				<input id="login-email" type="email" name="email" value={ email } readonly required/>
+				<label for="login-otp">{ tr("web.code") }</label>
+				<input id="login-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required autofocus/>
+				@templates.FormWarning(message)
+				<footer>
+					<a class="button outline" href={ action }>{ tr("web.restart") }</a>
+					<button type="submit">{ tr("web.verify") }</button>
+				</footer>
+			} else {
+				<input type="hidden" name="action" value="login"/>
+				<label for="login-email">{ tr("web.email") }</label>
+				<input id="login-email" type="email" name="email" value={ email } autocomplete="email" required/>
+				@templates.FormWarning(message)
+				<footer>
+					<button type="submit">{ tr("web.send") }</button>
+				</footer>
+			}
+		</form>
+	</section>
+}

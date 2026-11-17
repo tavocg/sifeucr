@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sifeucr-config
+data:
+  SIFEUCR_HOST: "0.0.0.0"
+  SIFEUCR_PORT: "3080"
+  SIFEUCR_DATABASE_AUTO_MIGRATE: "false"
+  SIFEUCR_DATABASE_MAX_CONNECTIONS: "10"
+  SIFEUCR_CACHE_ENABLED: "false"
+  SIFEUCR_HTTP_DRAIN_DELAY: "5s"
+  SIFEUCR_HTTP_SHUTDOWN_TIMEOUT: "25s"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sifeucr
+spec:
+  replicas: 2
+  minReadySeconds: 5
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      sifeucr: sifeucr
+  template:
+    metadata:
+      labels:
+        sifeucr: sifeucr
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              sifeucr: sifeucr
+      containers:
+        - name: sifeucr
+          image: sifeucr:multi-instance
+          ports:
+            - name: http
+              containerPort: 3080
+          envFrom:
+            - configMapRef:
+                name: sifeucr-config
+            - secretRef:
+                name: sifeucr-runtime
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: 2
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sifeucr
+spec:
+  selector:
+    sifeucr: sifeucr
+  ports:
+    - name: http
+      port: 3080
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sifeucr
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      sifeucr: sifeucr

@@ -1,0 +1,39 @@
+# Run and wait for this Job BEFORE applying the Deployment. Change the job name
+# per release; never run a second migration job alongside an unfinished one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sifeucr-migrate
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: sifeucr:multi-instance
+          args: [migrate]
+          envFrom:
+            - secretRef:
+                name: sifeucr-migrations
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

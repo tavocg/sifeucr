@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"sifeucr/cache/memory"
 	"sifeucr/database"
 	"sifeucr/database/cached"
 	"sifeucr/database/provider"
-	"github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Run always tests SQLite. External backends require an administrative test DSN:

@@ -1,0 +1,49 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/sifeucr ."
+entrypoint = ["./tmp/sifeucr", "--dev"]
+include_ext = ["go", "html", "css", "js", "json", "svg", "txt", "yaml", "yml"]
+include_file = ["go.mod", "go.sum", ".env"]
+exclude_dir = ["tmp", "data", "node_modules", ".git", ".github"]
+exclude_regex = ["_test\\.go$"]
+exclude_unchanged = true
+delay = 300
+stop_on_error = true
+send_interrupt = true
+kill_delay = "30s"
+
+# Generated Go/HTML files trigger the normal build, never another generator.
+[[build.rules]]
+name = "templ"
+include_ext = ["templ"]
+cmd = "go tool templ generate -path templates -log-level warn"
+delay = 300
+
+[[build.rules]]
+name = "database"
+include_dir = ["database"]
+include_ext = ["sql"]
+include_file = ["database/sqlc.yaml", "database/generate.go"]
+cmd = "go generate ./database"
+delay = 300
+
+[[build.rules]]
+name = "api"
+include_file = ["docs/api.yaml", "docs/api.go"]
+cmd = "go generate ./docs"
+delay = 300
+
+[[build.rules]]
+name = "template assets"
+include_file = ["templates/semantic.go", "templates/datastar.go", "templates/generate.go"]
+cmd = "go generate ./templates"
+delay = 300
+
+[build.windows]
+cmd = "go build -o ./tmp/sifeucr.exe ."
+entrypoint = ["./tmp/sifeucr.exe", "--dev"]
+
+[misc]
+clean_on_exit = true

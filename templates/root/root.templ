@@ -1,7 +1,94 @@
 package root
 
-templ RootMain(tr func(string, ...any) string) {
-	<section>
-		<h1>{ tr("root.greeting") }</h1>
-	</section>
+import (
+ "fmt"
+ "sifeucr/routes"
+)
+
+templ RootMain(links routes.Links, tr func(string, ...any) string) {
+ <style>
+  .landing { padding-block: 1rem 2rem; }
+  .landing-hero { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,22rem),1fr)); align-items: center; gap: 3rem; padding: clamp(1.5rem,4vw,3.5rem); border: var(--d); border-radius: 1.25rem; background: radial-gradient(ellipse at top left,rgb(from var(--p) r g b / 10%),transparent 65%); }
+  .landing-hero > * { min-width: 0; margin: 0; }
+  .landing-eyebrow { display: flex; align-items: center; gap: .5rem; font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .landing h1 { margin-block: 1.25rem; font-size: clamp(2.5rem,4.5vw,4.5rem); line-height: 1.08; letter-spacing: -.055em; }
+  .landing-lead { max-width: 35rem; color: var(--fs); line-height: 1.8; }
+  .landing-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-block: 1.5rem 1rem; }
+  .landing-actions a, .landing-next a { display: inline-flex; align-items: center; gap: .5rem; }
+  .landing-preview { padding: 1.25rem; background: var(--b); box-shadow: 0 1rem 3rem #0001; transform: rotate(1deg); }
+  .landing-preview header { flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+  .landing-preview pre { margin-block: 1rem 1.5rem; padding: 1.25rem; font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .landing-preview dl { margin: 0; padding: 0; font-size: .85rem; }
+  .landing-preview dl > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; padding-block: .7rem; border-top: var(--d); }
+  .landing-preview dt { color: var(--fs); }
+  .landing-preview figcaption { margin-top: 1rem; font-size: .75rem; }
+  .landing-stack { display: flex; justify-content: center; flex-wrap: wrap; gap: .75rem 2rem; padding-block: 1.75rem; border-bottom: var(--d); font-size: .8rem; }
+  .landing-features { margin-block: 3rem; }
+  .landing-features h2, .landing-next h2 { font-size: clamp(1.5rem,3vw,2rem); letter-spacing: -.035em; }
+  .landing-features > hgroup { margin-bottom: 1.5rem; }
+  .landing-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr)); gap: 1rem; }
+  .landing-grid .card { margin: 0; padding: 1.5rem; }
+  .landing-icon { width: fit-content; padding: .65rem; margin-bottom: 1rem; border: var(--d); border-radius: .75rem; background: rgb(from var(--p) r g b / 7%); }
+  .landing-grid h3 { font-size: 1.1rem; margin-bottom: .6rem; }
+  .landing-grid p { color: var(--fs); font-size: .9rem; line-height: 1.75; }
+  .landing-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: clamp(1.25rem,3vw,2rem); border: var(--d); border-radius: var(--r); }
+  .landing-next > * { margin: 0; }
+  .landing-next p { color: var(--fs); margin-top: .5rem; }
+ </style>
+ <div class="landing">
+  <div class="landing-hero">
+   <section aria-labelledby="landing-title">
+    <p class="landing-eyebrow primary"><span aria-hidden="true">✳</span>{ tr("root.eyebrow") }</p>
+    <h1 id="landing-title">{ tr("root.headline") }<br/><span class="primary">{ tr("root.headline_accent") }</span></h1>
+    <p class="landing-lead">{ tr("root.description") }</p>
+    <div class="landing-actions">
+     <a class="button" href={ links.URL(routes.LoginPage) }>{ tr("root.start") }<span aria-hidden="true"> →</span></a>
+     <a class="button outline" href={ links.URL(routes.APIDocs) }>{ tr("root.explore_api") }</a>
+    </div>
+    <small class="mute">{ tr("root.foundation") }</small>
+   </section>
+   <figure class="card landing-preview" aria-labelledby="preview-title">
+    <header><strong id="preview-title">{ tr("root.preview") }</strong><span class="tag green">200 OK</span></header>
+    <p><span class="tag blue">GET</span> <code>{ links.URL(routes.Root) }</code></p>
+    <pre><code>{ fmt.Sprintf("{\n  \"message\": %q\n}", tr("root.greeting")) }</code></pre>
+    <dl>
+     <div><dt>{ tr("root.authentication") }</dt><dd><span class="tag blue">Email OTP</span></dd></div>
+     <div><dt>{ tr("root.sessions") }</dt><dd>{ tr("root.revocable") }</dd></div>
+     <div><dt>{ tr("root.documentation") }</dt><dd>OpenAPI</dd></div>
+    </dl>
+    <figcaption>{ tr("root.preview_caption") }</figcaption>
+   </figure>
+  </div>
+  <div class="landing-stack" aria-label={ tr("root.stack") }><span class="tag blue">Go</span><span class="tag green">sqlc</span><span class="tag violet">templ</span><span class="tag orange">Semantic CSS</span></div>
+  <section class="landing-features" aria-labelledby="features-title">
+   <hgroup><h2 id="features-title">{ tr("root.features_title") }</h2><p>{ tr("root.features_description") }</p></hgroup>
+   <div class="landing-grid">
+    @feature("login", tr("root.login_title"), tr("root.login_description"))
+    @feature("sessions", tr("root.sessions_title"), tr("root.sessions_description"))
+    @feature("code", tr("root.api_title"), tr("root.api_description"))
+   </div>
+  </section>
+  <section class="landing-next" aria-labelledby="next-title">
+   <div><h2 id="next-title">{ tr("root.next_title") }</h2><p>{ tr("root.next_description") }</p></div>
+   <a class="button outline" href={ links.URL(routes.APIDocs) }>{ tr("root.explore_api") }<span aria-hidden="true"> →</span></a>
+  </section>
+ </div>
+}
+
+templ feature(icon, title, description string) {
+ <div class="card">
+  <div class="landing-icon primary">
+   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    switch icon {
+     case "login":
+      <rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="m3 7 9 6 9-6"></path>
+     case "sessions":
+      <rect x="2" y="3" width="14" height="12" rx="2"></rect><path d="M5 20h8m-4-5v5"></path><rect x="16" y="10" width="6" height="11" rx="1.5"></rect>
+     default:
+      <path d="m8 5-7 7 7 7m8-14 7 7-7 7m-3-16-2 18"></path>
+    }
+   </svg>
+  </div>
+  <h3>{ title }</h3><p>{ description }</p>
+ </div>
 }

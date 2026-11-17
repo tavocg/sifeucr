@@ -31,13 +31,38 @@ info:
     global OTP limits. Verification codes are stored only as HMAC-SHA-256
     digests bound to their purpose and identity; plaintext codes are never
     persisted.
+    Application routes provide automatic OPTIONS responses with Allow. CORS is
+    disabled by default and configured by an origin allowlist, optionally
+    overridden per endpoint. Preflights validate the requested method and allow
+    Authorization, Content-Type, Accept and Accept-Language headers. Rejected
+    preflights return 403. Browser credentials are not enabled.
 servers:
+  - url: https://example.com
+    description: Production server
   - url: http://localhost:3080
     description: Local development server
 tags:
   - name: Authentication
   - name: Account
 paths:
+  /livez:
+    get:
+      operationId: liveness
+      summary: Process liveness
+      description: Operational route at the absolute path /livez, independent of the configured application root. Does not check SQL. Responses have no body and use Cache-Control no-store.
+      responses:
+        '204':
+          description: HTTP server is responsive.
+  /readyz:
+    get:
+      operationId: readiness
+      summary: Readiness to accept traffic
+      description: Operational route at the absolute path /readyz, independent of the configured application root. Checks SQL with a one-second timeout and rejects traffic eligibility during shutdown. Does not expose dependency details. Responses have no body and use Cache-Control no-store.
+      responses:
+        '204':
+          description: Instance is ready.
+        '503':
+          description: SQL unavailable or instance draining.
   /auth/login:
     post:
       tags:

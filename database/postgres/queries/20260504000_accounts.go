@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"sifeucr/database"
 	"sifeucr/database/postgres/db"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (q *PostgresQuerier) EnsureAccountByEmail(ctx context.Context, email string, createdAt int64) (sub int64, err error) {

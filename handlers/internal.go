@@ -3,11 +3,11 @@ package handlers
 import (
 	"net/http"
 
+	email "github.com/tavocg/go-email"
 	"sifeucr/database"
 	"sifeucr/internal/httpx"
 	"sifeucr/internal/logging"
 	"sifeucr/middleware"
-	email "github.com/tavocg/go-email"
 )
 
 func (h *Handler) writeStatus(w http.ResponseWriter, r *http.Request, status int, key string, msg string, args ...any) {
@@ -39,6 +39,21 @@ func (h *Handler) localize(r *http.Request, key string, args ...any) string {
 	return L(key, args...)
 }
 
+// language returns the negotiated request language. It falls back to English
+// when no localizer is configured or no offered language is acceptable, which
+// matches the translation lookup order.
+func (h *Handler) language(r *http.Request) string {
+	const fallback = "en"
+	if h.localizer == nil {
+		return fallback
+	}
+
+	if language := h.localizer.PickLanguageFromRequest(r); language != "" {
+		return language
+	}
+	return fallback
+}
+
 // normalizeEmail returns normalized email address if it meets strict rules.
 // Returns an empty string for invalid input.
 func normalizeEmail(original string) string {
@@ -68,11 +83,11 @@ func (h *Handler) requireIdentity(w http.ResponseWriter, r *http.Request) (middl
 func decodeBody[T any](h *Handler, w http.ResponseWriter, r *http.Request, key, message string) (T, bool) {
 	var body T
 	if err := httpx.DecodeJSON(w, r, &body); err != nil {
-		h.writeError(
+		// Decoder errors can contain arbitrary field names supplied by the client.
+		h.writeStatus(
 			w,
 			r,
 			http.StatusBadRequest,
-			err,
 			key,
 			message,
 		)

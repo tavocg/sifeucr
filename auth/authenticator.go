@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"sifeucr/database"
 	goauth "github.com/tavocg/go-auth"
 	"github.com/tavocg/go-auth/jwt"
 	secrets "github.com/tavocg/go-secrets"
+	"sifeucr/database"
 )
 
 type Authenticator struct {
@@ -108,6 +108,18 @@ func (a *Authenticator) Refresh(ctx context.Context, refreshToken string) (at *g
 		if consumed.ExpiresAt != 0 && time.Now().UTC().Unix() >= consumed.ExpiresAt {
 			return goauth.ErrExpiredToken
 		}
+		// Retention covers the original credentials' lifetime, including access
+		// tokens that outlive refresh. Legacy non-expiring refreshes get one TTL.
+		expiresAt := consumed.ExpiresAt
+		if expiresAt == 0 {
+			expiresAt = time.Now().UTC().Add(a.refreshTTL).Unix()
+		}
+		if err := q.InsertConsumedRefreshToken(ctx, database.ConsumedRefreshToken{
+			TokenHash: consumed.TokenHash, Sub: consumed.Sub, AuthID: consumed.AuthID,
+			SessionID: consumed.SessionID, ExpiresAt: max(expiresAt, consumed.AccessExpiresAt),
+		}); err != nil {
+			return err
+		}
 
 		at, rt, err = a.signSession(ctx, q, consumed)
 		return err
@@ -159,7 +171,28 @@ func (a *Authenticator) Revoke(ctx context.Context, refreshToken string) error {
 		return goauth.ErrInvalidToken
 	}
 
-	return a.db.Querier().DeleteRefreshTokenByHash(ctx, hashRefreshToken(refreshToken))
+	// Resolve the stable session before locking, as Refresh does for SQLite.
+	// A concurrent rotation may replace the hash while we wait for the account.
+	saved, err := a.db.Querier().SelectRevocableSessionByHash(ctx, hashRefreshToken(refreshToken), time.Now().Unix())
+	if a.db.IsErrNotFound(err) {
+		return nil // Unknown or no longer retained; keep revocation idempotent.
+	}
+	if err != nil {
+		return err
+	}
+	return a.db.WithTx(ctx, func(q database.Querier) error {
+		authID, err := q.LockAccountAuthID(ctx, saved.Sub)
+		if a.db.IsErrNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if authID != saved.AuthID {
+			return nil // This generation has already been revoked.
+		}
+		return q.DeleteAccountSession(ctx, saved.Sub, saved.SessionID)
+	})
 }
 
 func (a *Authenticator) RevokeAll(ctx context.Context, identity *Claims) error {
@@ -253,12 +286,12 @@ func (a *Authenticator) signSession(ctx context.Context, q database.Querier, ses
 	}
 
 	return &goauth.Token{
-			Value:     accessToken,
-			ExpiresAt: claims.ExpiresAt(),
-		}, &goauth.Token{
-			Value:     refreshToken,
-			ExpiresAt: refreshExpiresAt,
-		}, nil
+		Value:     accessToken,
+		ExpiresAt: claims.ExpiresAt(),
+	}, &goauth.Token{
+		Value:     refreshToken,
+		ExpiresAt: refreshExpiresAt,
+	}, nil
 }
 
 func subject(identity *Claims) (int64, error) {

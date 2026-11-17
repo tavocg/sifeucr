@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	goauth "github.com/tavocg/go-auth"
 	"sifeucr/auth"
 	"sifeucr/database"
 	"sifeucr/internal/testdb"
-	goauth "github.com/tavocg/go-auth"
 )
 
 func authenticator(t *testing.T, db database.Database) *auth.Authenticator {

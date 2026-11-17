@@ -14,5 +14,6 @@ func (q *SQLiteQuerier) DeleteExpiredRecords(ctx context.Context, now int64) err
 		q.queries.DeleteExpiredEmailChangeRequests(ctx, now),
 		q.queries.DeleteExpiredRefreshTokens(ctx, now),
 		database.DeleteExpiredBatches(ctx, now, q.queries.DeleteExpiredRateLimits),
+		database.DeleteExpiredBatches(ctx, now, q.queries.DeleteExpiredConsumedRefreshTokens),
 	)
 }

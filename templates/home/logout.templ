@@ -1,0 +1,35 @@
+package home
+
+import "sifeucr/templates"
+
+templ confirmLogout(id, action, operation, sessionID, device string, current bool, tr func(string) string) {
+	<dialog id={ id } aria-labelledby={ id + "-title" } aria-describedby={ id + "-description" }>
+		<hgroup>
+			<header>
+				<h2 id={ id + "-title" }>{ tr("web.confirm_logout") }</h2>
+				<button type="button" commandfor={ id } command="close" aria-label={ tr("web.close") }>×</button>
+			</header>
+			<p id={ id + "-description" }>
+				if current {
+					{ tr("web.logout_current") }
+				} else {
+					{ tr("web.logout_device") + " " }
+					if device!="" {
+						{ device }
+					} else {
+						{ tr("web.unknown_device") }
+					}
+				}
+			</p>
+		</hgroup>
+		@templates.FormError(id+"-form")
+		<form id={ id + "-form" } hidden method="post" action={ action } data-on:submit={ templates.Submit }>
+			<input type="hidden" name="action" value={ operation }/>
+			<input type="hidden" name="session_id" value={ sessionID }/>
+		</form>
+		<footer>
+			<button type="button" class="outline" commandfor={ id } command="close" autofocus>{ tr("web.cancel") }</button>
+			<button type="submit" form={ id + "-form" } { templates.Button()... }>{ tr("web.logout") }</button>
+		</footer>
+	</dialog>
+}

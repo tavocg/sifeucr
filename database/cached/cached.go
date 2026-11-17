@@ -10,7 +10,7 @@ import (
 )
 
 type Database struct {
-	next  database.Database
+	database.Database
 	store cache.Store
 	state *cacheState
 }
@@ -27,15 +27,15 @@ func New(next database.Database, store cache.Store) database.Database {
 	}
 
 	return &Database{
-		next:  next,
-		store: store,
-		state: newCacheState(),
+		Database: next,
+		store:    store,
+		state:    newCacheState(),
 	}
 }
 
 func (d *Database) Querier() database.Querier {
 	return &Querier{
-		Querier:    d.next.Querier(),
+		Querier:    d.Database.Querier(),
 		store:      d.store,
 		state:      d.state,
 		cacheRead:  true,
@@ -45,7 +45,7 @@ func (d *Database) Querier() database.Querier {
 
 func (d *Database) WithTx(ctx context.Context, fn func(q database.Querier) error) error {
 	pending := make(map[string]struct{})
-	err := d.next.WithTx(ctx, func(q database.Querier) error {
+	err := d.Database.WithTx(ctx, func(q database.Querier) error {
 		return fn(&Querier{
 			Querier: q,
 			store:   d.store,
@@ -64,14 +64,6 @@ func (d *Database) WithTx(ctx context.Context, fn func(q database.Querier) error
 		d.invalidate(key)
 	}
 	return nil
-}
-
-func (d *Database) IsErrNotFound(err error) bool {
-	return d.next.IsErrNotFound(err)
-}
-
-func (d *Database) Close() error {
-	return d.next.Close()
 }
 
 func (d *Database) invalidate(keys ...string) {

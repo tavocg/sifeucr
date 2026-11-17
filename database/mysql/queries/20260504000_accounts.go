@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/go-sql-driver/mysql"
 	"sifeucr/database"
 	"sifeucr/database/mysql/db"
-	"github.com/go-sql-driver/mysql"
 )
 
 func (q *MySQLQuerier) EnsureAccountByEmail(ctx context.Context, email string, createdAt int64) (sub int64, err error) {

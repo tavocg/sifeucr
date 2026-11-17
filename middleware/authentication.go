@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	goauth "github.com/tavocg/go-auth"
 	appauth "sifeucr/auth"
 	"sifeucr/internal/httpx"
 	"sifeucr/internal/logging"
-	goauth "github.com/tavocg/go-auth"
 )
 
 type identityContextKey struct{}

@@ -36,6 +36,22 @@ type RefreshToken struct {
 	AccessExpiresAt int64
 }
 
+// SessionIdentity identifies an account-owned session without credentials.
+type SessionIdentity struct {
+	Sub       int64
+	AuthID    string
+	SessionID string
+}
+
+// ConsumedRefreshToken permits revocation after rotation, never renewal.
+type ConsumedRefreshToken struct {
+	TokenHash string
+	Sub       int64
+	AuthID    string
+	SessionID string
+	ExpiresAt int64
+}
+
 // Session contains display metadata; credentials and their hashes stay private.
 type Session struct {
 	SessionID       string

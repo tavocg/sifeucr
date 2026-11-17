@@ -1,5 +1,8 @@
 package base
 
+import "sifeucr/templates"
+import "sifeucr/routes"
+
 type HeadParams struct {
 	Title                 string
 	Subtitle              string
@@ -8,12 +11,15 @@ type HeadParams struct {
 	RobotsGoogleTranslate bool
 }
 
-const RedirectID = "redirect"
-
-templ head(params HeadParams) {
+templ head(params HeadParams, links routes.Links, reactive bool) {
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"/>
+		@templates.SemanticStylesheet()
+  if reactive {
+   {{ src, _ := links.StaticURL(templates.DatastarScriptPath) }}
+   <script type="module" src={ src } integrity={ templates.DatastarIntegrity } crossorigin="anonymous"></script>
+  }
 		if params.Title != "" && params.Subtitle != "" {
 			<title>{ params.Subtitle + " | " + params.Title }</title>
 		} else if params.Title != "" {

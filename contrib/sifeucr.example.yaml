@@ -3,7 +3,8 @@
 # All options here are set to the default values. If no configuration file is
 # found, then these values will be used.
 
-# Enable development features like source locations in logs.
+# Enable debug/text logging by default, source locations and plaintext OTP logs.
+# Allows all CORS origins and bypasses browser form CSRF checks.
 # Allows empty or short signing secrets with warnings.
 # Override with:
 #   SIFEUCR_DEV=true sifeucr serve
@@ -24,6 +25,7 @@ port: 3080
 
 # Auth settings.
 # Signing secrets require at least 32 bytes outside development mode.
+# Generate 32 random bytes as 64 hex characters: openssl rand -hex 32
 # Override with:
 #   SIFEUCR_AUTH_SECRET=change-me sifeucr serve --dev
 #   sifeucr serve --dev --auth-secret change-me
@@ -38,6 +40,7 @@ auth:
 
 # Independent HMAC key used to store verification codes as keyed digests.
 # Use at least 32 random bytes outside development; it must differ from auth.secret.
+# Generate independently: openssl rand -hex 32 (do not reuse auth.secret).
 # In development, an empty value uses a temporary key that changes on restart.
 # Rotating this key invalidates every pending verification code.
 # Override with:
@@ -54,17 +57,19 @@ otp:
 #   sifeucr serve --root /prefix
 root: ""
 
-# Log output format. Valid values: json, text.
+# Log output format. Default: json, or text in development.
+# Uncomment to override the default, including in development.
 # Override with:
 #   SIFEUCR_LOGFMT=text sifeucr serve
 #   sifeucr serve --logfmt text
-logfmt: json
+# logfmt: json
 
-# Minimum log level. Valid values: debug, info, warn, error.
+# Minimum log level. Default: info, or debug in development.
+# Valid values: debug, info, warn, error. Uncomment to override the default.
 # Override with:
 #   SIFEUCR_LOGLVL=debug sifeucr serve
 #   sifeucr serve --loglvl debug
-loglvl: info
+# loglvl: info
 
 # Database connection string or path.
 # Override with:
@@ -78,4 +83,60 @@ db: data/sifeucr.sqlite
 # Replace the mailer injected in cmd/server.go to enable actual delivery.
 # Override with SIFEUCR_MAIL_FROM or --mail-from.
 mail:
+  # Implicit TLS by default (typically port 465); starttls requires STARTTLS.
+  # Override with:
+  #   SIFEUCR_MAIL_SMTP_ADDRESS=smtp.example.com:465 sifeucr serve
+  #   sifeucr serve --smtp-address smtp.example.com:465
+  #   SIFEUCR_MAIL_SMTP_USER=user sifeucr serve --smtp-user user
+  #   SIFEUCR_MAIL_SMTP_PASSWORD=secret sifeucr serve --smtp-password secret
+  #   SIFEUCR_MAIL_SMTP_STARTTLS=true sifeucr serve --smtp-starttls
+  smtp:
+    address: ""
+    user: ""
+    password: ""
+    starttls: false
   from: no-reply@example.com
+
+# Run `sifeucr migrate` separately and disable automatic DDL for replicated servers.
+# Give the migration job its own SQL credentials; replicas use DML-only accounts.
+# See docs/database-privileges.md for grants and read-only schema metadata.
+# Override with:
+#   SIFEUCR_DATABASE_AUTO_MIGRATE=false sifeucr serve
+#   sifeucr serve --auto-migrate=false
+#   SIFEUCR_DATABASE_MAX_CONNECTIONS=20 sifeucr serve
+#   sifeucr serve --db-max-connections 20
+database:
+  auto-migrate: true
+  max-connections: 10
+
+# Local profile cache has no cross-instance invalidation. Disabled by default.
+# Override with:
+#   SIFEUCR_CACHE_ENABLED=true sifeucr serve
+#   sifeucr serve --cache
+cache:
+  enabled: false
+
+# Kubernetes termination grace must exceed the sum, plus cleanup margin.
+# Override with:
+#   SIFEUCR_HTTP_DRAIN_DELAY=5s sifeucr serve
+#   sifeucr serve --drain-delay 5s
+#   SIFEUCR_HTTP_SHUTDOWN_TIMEOUT=25s sifeucr serve
+#   sifeucr serve --shutdown-timeout 25s
+http:
+  drain-delay: 5s
+  shutdown-timeout: 25s
+
+# Exact browser origins allowed to read API responses. Empty disables CORS.
+# SIFEUCR_CORS_ORIGINS=https://web.example.com,https://admin.example.com
+# --cors-origins https://web.example.com,https://admin.example.com
+cors:
+  origins: []
+
+# Exact browser origins allowed to post browser forms. The cross-origin
+# protection compares Origin with Host by default; declare the public origin when
+# a tunnel or reverse proxy rewrites Host. Unlike cors.origins, these origins are
+# trusted to change state, so keep the list minimal.
+# SIFEUCR_CSRF_ORIGINS=https://web.example.com,http://desktop:3080
+# --csrf-origins https://web.example.com,http://desktop:3080
+csrf:
+  origins: []
