@@ -4,10 +4,6 @@ VALUES ((SELECT last_sub + 1 FROM account_subject_sequence WHERE id = 1), ?, ?, 
 ON CONFLICT(email) DO UPDATE SET email = excluded.email
 RETURNING sub;
 
--- name: UpdateAccountEmail :exec
-UPDATE accounts
-SET email = ?
-WHERE sub = ?;
 
 -- name: DeleteAccount :exec
 DELETE FROM accounts

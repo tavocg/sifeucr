@@ -17,3 +17,5 @@ data/
 /handlers/static/js/
 
 /tmp/
+
+/handlers/static/LICENSE.txt

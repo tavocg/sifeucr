@@ -1,10 +1,8 @@
 // Package meta defines shared template metadata.
 package meta
 
-import "time"
+const SourceURL = "https://github.com/tavocg/sifeucr"
 
-const AppTitle = "sifeucr"
+const AppTitle = "SIFEUCR"
 
-const CopyrightHolder = "Gustavo Calvo <tavo@tavo.cr>"
-
-var Year = time.Now().Year()
+const CopyrightHolder = "Secretaría de Finanzas"

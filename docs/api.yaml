@@ -25,12 +25,10 @@ info:
     return localized JSON with status 504 if response headers have not been sent.
     Cancellation is cooperative and does
     not roll back changes already committed before the deadline.
-    OTP limits in the application are per normalized email for login and per
-    authenticated account for email changes. Per-client-IP throttling belongs
-    in the deployment's reverse proxy; the application does not impose IP or
-    global OTP limits. Verification codes are stored only as HMAC-SHA-256
-    digests bound to their purpose and identity; plaintext codes are never
-    persisted.
+    Login verifies institutional credentials through SMTP over verified TLS.
+    Development mode skips credential verification. Passwords are never stored.
+    Login attempts are limited to five per ten minutes per normalized email.
+    Per-client-IP throttling belongs in the deployment reverse proxy.
     Application routes provide automatic OPTIONS responses with Allow. CORS is
     disabled by default and configured by an origin allowlist, optionally
     overridden per endpoint. Preflights validate the requested method and allow
@@ -44,6 +42,7 @@ servers:
 tags:
   - name: Authentication
   - name: Account
+  - name: Information
 paths:
   /livez:
     get:
@@ -63,64 +62,92 @@ paths:
           description: Instance is ready.
         '503':
           description: SQL unavailable or instance draining.
+  /about:
+    get:
+      tags:
+        - Information
+      operationId: aboutPage
+      summary: About the institutional platform
+      description: Public localized HTML page. Uses Cache-Control no-store and Vary Accept-Language. The configured root prefix applies.
+      responses:
+        '200':
+          description: Platform information.
+          content:
+            text/html:
+              schema:
+                type: string
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+  /terms:
+    get:
+      tags:
+        - Information
+      operationId: termsPage
+      summary: Terms and privacy
+      description: Public localized HTML describing institutional use, credentials, account and session data, and authentication cookies. Uses Cache-Control no-store and Vary Accept-Language. The configured root prefix applies.
+      responses:
+        '200':
+          description: Terms and privacy page.
+          content:
+            text/html:
+              schema:
+                type: string
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+  /s/LICENSE.txt:
+    get:
+      tags:
+        - Information
+      operationId: applicationLicense
+      summary: Application license
+      description: Static copy of the repository LICENSE, embedded during template generation. The configured root prefix applies.
+      responses:
+        '200':
+          description: GNU GPL version 3 license text.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
   /auth/login:
     post:
       tags:
         - Authentication
       operationId: loginOrCreateAccount
-      summary: Trigger login or account creation
-      description: Creates a temporary 6-digit verification code. The message is submitted to the configured mailer; the default noop mailer discards it without delivery. Development mode can log the code. Limited to one request every 60 seconds and five requests per ten-minute window per normalized email; reissuing does not reset the verification budget.
+      summary: Sign in with institutional credentials
+      description: Validates email and password against the configured institutional SMTP server with verified TLS. Development skips verification and allows an omitted password. Creates the local account if missing and returns session tokens. Limited to five attempts per ten minutes per normalized email. Passwords are never stored or logged.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
-            example:
-              email: john@doe.com
       responses:
-        '504':
-          $ref: '#/components/responses/RequestTimeout'
-        '502':
-          $ref: '#/components/responses/OTPMailFailure'
-        '429':
-          $ref: '#/components/responses/OTPRateLimited'
-        '204':
-          description: Verification request stored and accepted by the mailer. The default noop mailer does not deliver email.
-        default:
-          $ref: '#/components/responses/Error'
-  /auth/verify:
-    post:
-      tags:
-        - Authentication
-      operationId: verifyAuthenticationCode
-      summary: Verify email code
-      description: Atomically consumes the provided unexpired email code once, then creates a new session. If no account exists for the email address, a new account is created. Limited to five verification requests per ten-minute window per normalized email, including failed attempts and successful verifications.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VerifyRequest'
-            example:
-              email: john@doe.com
-              otp: "123456"
-      responses:
-        '504':
-          $ref: '#/components/responses/RequestTimeout'
-        '429':
-          $ref: '#/components/responses/OTPRateLimited'
         '200':
-          description: Verified account and created session.
+          description: Authenticated account and created session.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VerifyResponse'
-              example:
-                access_token: eyJhbGciOa...
-                refresh_token: X4fFxvY89ypw5f...
-                expires_in: 900
-                refresh_token_expires_in: 2592000
+                $ref: '#/components/schemas/SessionTokens'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          description: Credentials rejected by the institutional server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Institutional authentication unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/LoginRateLimited'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
         default:
           $ref: '#/components/responses/Error'
   /auth/refresh:
@@ -227,7 +254,7 @@ paths:
         - Account
       operationId: revokeSessions
       summary: Close all account sessions
-      description: Requires no body. Atomically rotates the account generation and removes all its sessions, including the caller's. Existing access and refresh tokens are rejected on subsequent requests; already authenticated requests may finish. The account and OTP challenges remain intact, and a fresh login can create a new session. The empty response includes Cache-Control no-store.
+      description: Requires no body. Atomically rotates the account generation and removes all its sessions, including the caller's. Existing access and refresh tokens are rejected on subsequent requests; already authenticated requests may finish. The account remains intact, and a fresh login can create a new session. The empty response includes Cache-Control no-store.
       security:
         - bearerAuth: []
       responses:
@@ -269,66 +296,6 @@ paths:
           $ref: '#/components/responses/RequestTimeout'
         default:
           $ref: '#/components/responses/Error'
-  /account/email/change:
-    patch:
-      tags:
-        - Account
-      operationId: requestEmailChange
-      summary: Request an email address change
-      description: Limited to one request every 60 seconds and five requests per ten-minute window per account, regardless of target email. Reissuing does not reset the verification budget.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChangeEmailRequest'
-            example:
-              new_email: new@email.com
-      responses:
-        '504':
-          $ref: '#/components/responses/RequestTimeout'
-        '502':
-          $ref: '#/components/responses/OTPMailFailure'
-        '429':
-          $ref: '#/components/responses/OTPRateLimited'
-        '204':
-          description: Email change request stored and submitted to the new address through the configured mailer. The default noop mailer does not deliver email.
-        default:
-          $ref: '#/components/responses/Error'
-  /account/email/change/confirm:
-    patch:
-      tags:
-        - Account
-      operationId: confirmEmailChange
-      summary: Confirm an email address change
-      description: Limited to five verification requests per ten-minute window per account, including failed attempts and successful verifications.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChangeEmailConfirmRequest'
-            example:
-              otp: "123456"
-      responses:
-        '504':
-          $ref: '#/components/responses/RequestTimeout'
-        '429':
-          $ref: '#/components/responses/OTPRateLimited'
-        '204':
-          description: Email change confirmed.
-        '409':
-          description: The target email is unavailable. Reported only after validating the code. The account stays unchanged and the code remains valid until expiration; this attempt still counts toward the verification limit.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        default:
-          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearerAuth:
@@ -343,14 +310,8 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-    OTPMailFailure:
-      description: The configured mailer reported a failure. The saved code expires normally and request limits remain in effect; a delivery error can occur after a provider has accepted the message.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    OTPRateLimited:
-      description: An OTP identity budget is exhausted. Retry-After refers to the rejecting budget; other identity budgets may still apply afterward. Limits persist in the database and are not reset by requesting another code or restarting the server.
+    LoginRateLimited:
+      description: Five login attempts per ten minutes per normalized email. Limits persist across restarts.
       headers:
         Retry-After:
           description: Seconds until this request budget resets.
@@ -373,26 +334,16 @@ components:
       additionalProperties: false
       required:
         - email
+        - password
       properties:
         email:
           type: string
           format: email
-    VerifyRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - email
-        - otp
-      properties:
-        email:
+        password:
           type: string
-          format: email
-        otp:
-          type: string
-          description: Six-digit one-time password.
-          minLength: 6
-          maxLength: 6
-          pattern: '^[0-9]{6}$'
+          format: password
+          writeOnly: true
+          description: Institutional password. May be omitted only in development mode.
     RefreshRequest:
       type: object
       additionalProperties: false
@@ -420,8 +371,6 @@ components:
         refresh_token_expires_in:
           type: integer
           minimum: 0
-    VerifyResponse:
-      $ref: '#/components/schemas/SessionTokens'
     RefreshResponse:
       $ref: '#/components/schemas/SessionTokens'
     AccountSession:
@@ -486,27 +435,6 @@ components:
         created_at:
           type: integer
           description: Account creation timestamp.
-    ChangeEmailRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - new_email
-      properties:
-        new_email:
-          type: string
-          format: email
-    ChangeEmailConfirmRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - otp
-      properties:
-        otp:
-          type: string
-          description: Six-digit one-time password.
-          minLength: 6
-          maxLength: 6
-          pattern: '^[0-9]{6}$'
     Error:
       type: object
       description: Generic JSON error payload.

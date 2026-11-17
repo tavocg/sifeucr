@@ -3,9 +3,9 @@
 # All options here are set to the default values. If no configuration file is
 # found, then these values will be used.
 
-# Enable debug/text logging by default, source locations and plaintext OTP logs.
+# Enable debug/text logging by default, source locations; skip institutional credential verification.
 # Allows all CORS origins and bypasses browser form CSRF checks.
-# Allows empty or short signing secrets with warnings.
+# Allows empty or short signing secrets.
 # Override with:
 #   SIFEUCR_DEV=true sifeucr serve
 #   sifeucr serve --dev
@@ -34,20 +34,13 @@ port: 3080
 #   SIFEUCR_AUTH_REFRESH_TOKEN_TTL=720h sifeucr serve
 #   sifeucr serve --auth-refresh-ttl 720h
 auth:
+  # SIFEUCR_AUTH_SMTP_ADDRESS / --auth-smtp-address (required outside dev)
+  smtp:
+    address: ""
+    starttls: false
   secret: ""
   access-token-ttl: 15m
   refresh-token-ttl: 720h
-
-# Independent HMAC key used to store verification codes as keyed digests.
-# Use at least 32 random bytes outside development; it must differ from auth.secret.
-# Generate independently: openssl rand -hex 32 (do not reuse auth.secret).
-# In development, an empty value uses a temporary key that changes on restart.
-# Rotating this key invalidates every pending verification code.
-# Override with:
-#   SIFEUCR_OTP_SECRET=change-me sifeucr serve --dev
-#   sifeucr serve --dev --otp-secret change-me
-otp:
-  secret: ""
 
 # Route prefix to mount the sifeucr under.
 # Use a clean literal path such as /sifeucr/v1, without wildcards, percent encoding,
@@ -78,24 +71,6 @@ root: ""
 #   sifeucr serve --db 'postgres://user:pass@localhost:5432/sifeucr?sslmode=disable'
 #   sifeucr serve --db 'mysql://user:pass@localhost:3306/sifeucr'
 db: data/sifeucr.sqlite
-
-# Sender used when building emails. The default noop mailer discards messages.
-# Replace the mailer injected in cmd/server.go to enable actual delivery.
-# Override with SIFEUCR_MAIL_FROM or --mail-from.
-mail:
-  # Implicit TLS by default (typically port 465); starttls requires STARTTLS.
-  # Override with:
-  #   SIFEUCR_MAIL_SMTP_ADDRESS=smtp.example.com:465 sifeucr serve
-  #   sifeucr serve --smtp-address smtp.example.com:465
-  #   SIFEUCR_MAIL_SMTP_USER=user sifeucr serve --smtp-user user
-  #   SIFEUCR_MAIL_SMTP_PASSWORD=secret sifeucr serve --smtp-password secret
-  #   SIFEUCR_MAIL_SMTP_STARTTLS=true sifeucr serve --smtp-starttls
-  smtp:
-    address: ""
-    user: ""
-    password: ""
-    starttls: false
-  from: no-reply@example.com
 
 # Run `sifeucr migrate` separately and disable automatic DDL for replicated servers.
 # Give the migration job its own SQL credentials; replicas use DML-only accounts.

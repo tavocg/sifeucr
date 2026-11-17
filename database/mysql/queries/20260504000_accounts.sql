@@ -6,10 +6,6 @@ ON DUPLICATE KEY UPDATE email = VALUES(email);
 -- name: SelectAccountSubByEmail :one
 SELECT sub FROM accounts WHERE email = ?;
 
--- name: UpdateAccountEmail :exec
-UPDATE accounts
-SET email = ?
-WHERE sub = ?;
 
 -- name: DeleteAccount :exec
 DELETE FROM accounts

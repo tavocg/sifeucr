@@ -4,10 +4,10 @@ import "sifeucr/templates"
 
 
 templ Sessions(action, home, next string, sessions []Session, tr func(string) string, language string) {
-	<section data-busy="sessions-refresh" id="sessions" class="card" data-refresh={ home + "?fragment=sessions" } data-effect={ "if ($refreshSessions && !$pending) { $refreshSessions = false; document.querySelector('dialog[open]')?.close(); " + templates.Refresh + " }" }>
+	<section data-busy="sessions-refresh" id="sessions" class="card" style="min-width:0" data-refresh={ home + "?fragment=sessions" } data-effect={ "if ($refreshSessions && !$pending) { $refreshSessions = false; document.querySelector('dialog[open]')?.close(); " + templates.Refresh + " }" }>
 		<hgroup>
 			<header>
-				<strong>{ tr("web.sessions") }</strong>
+				<h3>{ tr("web.sessions") }</h3>
 				<div style="display:flex">
 					<button id="sessions-refresh" type="button" class="plain" data-refresh={ home + "?fragment=sessions" } data-on:click={ templates.Refresh } { templates.Button()... } aria-label={ tr("web.reload") } title={ tr("web.reload") }>
 						<svg data-attr:hidden="$pending === 'sessions-refresh'" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -21,7 +21,6 @@ templ Sessions(action, home, next string, sessions []Session, tr func(string) st
 					</button>
 				</div>
 			</header>
-			<p>{ tr("web.sessions_help") }</p>
 		</hgroup>
 		<table class="nowrap">
 			<thead><tr><th>{ tr("web.device") }</th><th>{ tr("web.created") }</th><th>{ tr("web.used") }</th><th>{ tr("web.expires") }</th><th></th></tr></thead>

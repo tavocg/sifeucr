@@ -19,9 +19,9 @@ configuration discovery mistake the extensionless `/sifeucr` executable for YAML
    Railway also uses `PORT` for [deployment health checks](https://docs.railway.com/deployments/healthchecks).
 3. Set `SIFEUCR_DB` to the private database connection string, for example
    `${{MySQL.MYSQL_URL}}` or `${{Postgres.DATABASE_URL}}` (adjust service names).
-   Set independent `SIFEUCR_AUTH_SECRET` and `SIFEUCR_OTP_SECRET`, each generated with
-   `openssl rand -hex 32`. Configure `SIFEUCR_MAIL_FROM` and `SIFEUCR_MAIL_SMTP_*` for OTP
-   email delivery. Run in production mode, without `SIFEUCR_DEV=true`.
+   Set `SIFEUCR_AUTH_SECRET`, generated with
+   `openssl rand -hex 32`. Configure `SIFEUCR_AUTH_SMTP_ADDRESS` and optionally
+   `SIFEUCR_AUTH_SMTP_STARTTLS` for institutional credential verification. Run in production mode, without `SIFEUCR_DEV=true`.
 4. Set Healthcheck Path to `/readyz`. It checks Go and SQL through nginx.
    Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=40` so the default five-second drain
    and twenty-five-second shutdown can finish before Railway kills the container.
@@ -53,18 +53,17 @@ headers. Local Docker access can set them for testing and is not a trust boundar
 
 Limits apply to **public IPs, not devices**, and are local to each nginx replica.
 Devices sharing Wi-Fi/NAT share a budget; changing networks can change it. IP
-limits complement the application's persistent email/account quotas.
+limits complement the application's persistent email quotas.
 
 | Method and paths (with any application root) | Rate | Burst |
 | --- | --- | --- |
-| POST `/auth/login`, POST `/login`, PATCH `/account/email/change` | 10/min | 2 |
-| POST `/auth/verify`, PATCH `/account/email/change/confirm` | 30/min | 5 |
+| POST `/auth/login`, POST `/login` | 10/min | 2 |
 | POST `/auth/refresh` | 60/min | 10 |
 
 These are leaky-bucket average rates with immediate bursts and `429` rejections.
 POST and PATCH share their location's budget, so changing the method cannot
 bypass it. The API still accepts only the registered method for each endpoint.
-All browser form actions share the `/login` budget, including verification,
+All browser form actions share the `/login` budget, including login,
 resumption and logout. GET/HEAD and CORS preflights do not consume these budgets.
 
 Both nginx configurations use JSON access logs containing only method, normalized

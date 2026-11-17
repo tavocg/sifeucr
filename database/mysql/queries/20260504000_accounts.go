@@ -2,9 +2,7 @@ package queries
 
 import (
 	"context"
-	"errors"
 
-	"github.com/go-sql-driver/mysql"
 	"sifeucr/database"
 	"sifeucr/database/mysql/db"
 )
@@ -32,19 +30,6 @@ func (q *MySQLQuerier) EnsureAccountByEmail(ctx context.Context, email string, c
 	}
 
 	return sub, nil
-}
-
-func (q *MySQLQuerier) UpdateAccountEmail(ctx context.Context, sub int64, email string) error {
-	err := q.queries.UpdateAccountEmail(ctx, db.UpdateAccountEmailParams{
-		Email: email,
-		Sub:   sub,
-	})
-	// This statement only changes email; duplicate keys mean it is unavailable.
-	var conflict *mysql.MySQLError
-	if errors.As(err, &conflict) && conflict.Number == 1062 {
-		return database.ErrEmailUnavailable
-	}
-	return err
 }
 
 func (q *MySQLQuerier) DeleteAccount(ctx context.Context, sub int64) error {

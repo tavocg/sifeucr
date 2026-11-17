@@ -4,46 +4,61 @@ import "sifeucr/templates/meta"
 import "sifeucr/routes"
 
 type BodyParams struct {
-	Content templ.Component
-	Aside   templ.Component
+	Content   templ.Component
+	Aside     templ.Component
+	Dashboard bool
 }
 
-templ body(params BodyParams, links routes.Links) {
+templ body(params BodyParams, links routes.Links, tr func(string) string) {
 	<body>
-		@header(links)
-		@main(params.Content, params.Aside)
-		@footer()
+		if params.Aside != nil {
+			<aside id="site-aside" popover="auto">@params.Aside</aside>
+		}
+		<header>
+			<div style="display:flex;align-items:center;gap:1rem">
+				if params.Aside != nil {
+					<button type="button" class="plain" popovertarget="site-aside" aria-label={ tr("web.navigation") }>☰</button>
+				}
+				<strong>{ meta.AppTitle }</strong>
+			</div>
+			<nav aria-label={ tr("web.navigation") }>
+				<ul>
+					<li><a href={ links.URL(routes.Root) }>{ tr("web.home") }</a></li>
+					<li>
+						if params.Dashboard {
+							<a href={ links.URL(routes.DashboardPage) } aria-current="page">{ tr("web.dashboard") }</a>
+						} else {
+							<a href={ links.URL(routes.DashboardPage) }>{ tr("web.dashboard") }</a>
+						}
+					</li>
+				</ul>
+			</nav>
+		</header>
+		<main><div class="content">@params.Content</div></main>
+		@footer(links, tr)
 	</body>
 }
 
-templ header(links routes.Links) {
-	<header>
-		<strong>
-			{ meta.AppTitle }
-		</strong>
-		<nav>
-			<ul>
-				<li><a href={ links.URL(routes.APIDocs) }>API</a></li>
-			</ul>
-		</nav>
-	</header>
-}
-
-templ main(content, aside templ.Component) {
-	<main>
-		if aside != nil {
-			<aside>
-				@aside
-			</aside>
-		}
-		<div class="content">
-			@content
-		</div>
-	</main>
-}
-
-templ footer() {
+templ footer(links routes.Links, tr func(string) string) {
 	<footer>
-		© { meta.Year } { meta.CopyrightHolder }
+		<div style="display:flex;flex-direction:column;gap:.5rem">
+			<a href={ links.URL(routes.Root) }><strong>{ meta.AppTitle }</strong></a>
+			<small class="mute">© 2025 { meta.CopyrightHolder }</small>
+		</div>
+		<div style="font-size:small">
+			<strong>{ tr("web.platform") }</strong>
+			<ul class="mute">
+				<li><a href={ links.URL(routes.AboutPage) }>{ tr("web.about") }</a></li>
+				<li><a href={ links.URL(routes.TermsPage) }>{ tr("web.terms") }</a></li>
+			</ul>
+		</div>
+		<div style="font-size:small">
+			<strong>{ tr("web.project") }</strong>
+			<ul class="mute">
+				<li><a href={ links.URL(routes.APIDocs) }>API</a></li>
+				<li><a href={ links.URL(routes.License) }>{ tr("web.license") }</a></li>
+				<li><a href={ meta.SourceURL }>{ tr("web.source") }</a></li>
+			</ul>
+		</div>
 	</footer>
 }

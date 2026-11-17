@@ -2,18 +2,16 @@
 package handlers
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"net/mail"
 	"os"
 	"time"
 
 	"github.com/tavocg/go-auth"
-	"github.com/tavocg/go-email/mailer"
+	email "github.com/tavocg/go-email"
 	"github.com/tavocg/go-i18n"
-	"github.com/tavocg/go-secrets/otp"
 	appauth "sifeucr/auth"
 	"sifeucr/database"
 	"sifeucr/internal/logging"
@@ -23,8 +21,11 @@ import (
 
 const requestTimeout = 20 * time.Second
 
+type CredentialsVerifier func(context.Context, email.CredentialsConfig, string, string) error
+
 type Handler struct {
-	dev bool
+	verifyCredentials CredentialsVerifier
+	dev               bool
 
 	logger        logging.Logger
 	db            database.Database
@@ -36,29 +37,26 @@ type Handler struct {
 	namedRoutes   map[routes.ID]bool
 	routePolicies map[string]routePolicy
 	methods       map[string]bool
-	mailer        mailer.Mailer
-	mailFrom      string
-	otpSigner     *otp.Signer
+	credentials   email.CredentialsConfig
 
 	mux   *http.ServeMux
 	entry http.Handler
 }
 
 type Options struct {
-	Logger        logging.Logger
-	Dev           bool
-	DB            database.Database
-	Authenticator auth.Authenticator[*appauth.Claims]
-	Localizer     *i18n.Localizer
-	RootPrefix    string
-	CORSOrigins   []string
+	VerifyCredentials CredentialsVerifier
+	Logger            logging.Logger
+	Dev               bool
+	DB                database.Database
+	Authenticator     auth.Authenticator[*appauth.Claims]
+	Localizer         *i18n.Localizer
+	RootPrefix        string
+	CORSOrigins       []string
 	// CSRFOrigins lists origins allowed to post browser forms. The
 	// cross-origin protection compares Origin with Host by default; tunnels and
 	// proxies that rewrite Host must declare the public origin here instead.
 	CSRFOrigins []string
-	Mailer      mailer.Mailer
-	MailFrom    string
-	OTPSigner   *otp.Signer
+	Credentials email.CredentialsConfig
 }
 
 func NewHandler(opts Options) (*Handler, error) {
@@ -78,16 +76,8 @@ func NewHandler(opts Options) (*Handler, error) {
 		return nil, errors.New("handler authenticator is required")
 	}
 
-	if opts.Mailer == nil {
-		return nil, errors.New("handler mailer is required")
-	}
-	sender, err := mail.ParseAddress(opts.MailFrom)
-	if err != nil {
-		return nil, fmt.Errorf("invalid handler mail sender: %w", err)
-	}
-
-	if opts.OTPSigner == nil {
-		return nil, errors.New("handler OTP signer is required")
+	if !opts.Dev && opts.Credentials.Address == "" {
+		return nil, errors.New("institutional SMTP address is required outside development")
 	}
 
 	links, err := routes.NewLinks(opts.RootPrefix)
@@ -102,22 +92,25 @@ func NewHandler(opts Options) (*Handler, error) {
 		return nil, err
 	}
 
+	verifier := opts.VerifyCredentials
+	if verifier == nil {
+		verifier = email.VerifyCredentials
+	}
 	next := &Handler{
-		corsOrigins:   append([]string(nil), opts.CORSOrigins...),
-		csrfOrigins:   append([]string(nil), opts.CSRFOrigins...),
-		namedRoutes:   make(map[routes.ID]bool),
-		routePolicies: make(map[string]routePolicy),
-		methods:       make(map[string]bool),
-		dev:           opts.Dev,
-		logger:        logger,
-		db:            opts.DB,
-		authenticator: opts.Authenticator,
-		localizer:     opts.Localizer,
-		links:         links,
-		mailer:        opts.Mailer,
-		mailFrom:      sender.String(),
-		otpSigner:     opts.OTPSigner,
-		mux:           http.NewServeMux(),
+		verifyCredentials: verifier,
+		corsOrigins:       append([]string(nil), opts.CORSOrigins...),
+		csrfOrigins:       append([]string(nil), opts.CSRFOrigins...),
+		namedRoutes:       make(map[routes.ID]bool),
+		routePolicies:     make(map[string]routePolicy),
+		methods:           make(map[string]bool),
+		dev:               opts.Dev,
+		logger:            logger,
+		db:                opts.DB,
+		authenticator:     opts.Authenticator,
+		localizer:         opts.Localizer,
+		links:             links,
+		credentials:       opts.Credentials,
+		mux:               http.NewServeMux(),
 	}
 
 	next.registerRoutes()
@@ -176,6 +169,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthRoutes()
 	h.registerAccountRoutes()
 	h.registerRootRoutes()
+	h.registerInformationRoutes()
 	h.registerStaticRoutes()
 	h.registerBrowserRoutes()
 }

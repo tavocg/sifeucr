@@ -12,36 +12,67 @@ type Session struct {
 }
 
 type View struct {
-	Email       string
-	VerifyEmail bool
-	Notice      string
-	Failed      bool
+	Email   string
+	Created int64
+	Account bool
+}
+
+templ Aside(home, account string, view View, tr func(string) string) {
+	<div style="display:flex;flex-direction:column;min-height:100%">
+		<nav aria-label={ tr("web.navigation") }>
+			<ul>
+				<li>
+					<a href={ home } aria-current={ current(!view.Account) } style="display:flex;align-items:center;gap:.75rem">
+						<svg width="24" height="24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"></path>
+						</svg>
+						{ tr("web.overview") }
+					</a>
+				</li>
+			</ul>
+		</nav>
+		<nav style="margin-top:auto" aria-label={ tr("web.account") }>
+			<ul style="grid-template-columns:minmax(0,1fr)">
+				<li style="min-width:0">
+					<a href={ account } aria-current={ current(view.Account) } style="display:flex;align-items:center;gap:.75rem;min-width:0">
+						{{ initial := avatarInitial(view.Email) }}
+						<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" focusable="false" style="flex-shrink:0">
+							<circle cx="20" cy="20" r="20" fill={ avatarColor(initial) }></circle>
+							<text x="20" y="21" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="20" fill="white">{ initial }</text>
+						</svg>
+						<span style="flex:1;min-width:0;overflow:hidden">
+							<strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={ tr("web.account") }>{ tr("web.account") }</strong>
+							<small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={ view.Email }>{ view.Email }</small>
+						</span>
+					</a>
+				</li>
+			</ul>
+		</nav>
+	</div>
 }
 
 templ Home(action, home, next string, sessions []Session, language string, view View, tr func(string) string) {
-	{{ signals, _ := json.Marshal(map[string]any{"email": view.Email, "emailVerify": view.VerifyEmail, "error": "", "errorForm": "", "notice": "", "pending": "", "refreshSessions": false, "redirect": "", "failure": tr("web.update_error")}) }}
+	{{ signals, _ := json.Marshal(map[string]any{"error": "", "errorForm": "", "notice": "", "pending": "", "refreshSessions": false, "redirect": "", "failure": tr("web.update_error")}) }}
 	<section data-signals={ string(signals) } data-on:datastar-fetch="if (evt.detail.type === 'error') $error = $failure" data-effect="if ($redirect && new URL($redirect, location.href).origin === location.origin) location.assign($redirect)">
-		<header>
-			<hgroup><p class="primary">{ tr("web.workspace") }</p><h1>{ tr("web.account_overview") }</h1><p data-text="$email">{ view.Email }</p></hgroup>
-		</header>
-		if view.Notice!="" {
-			if view.Failed {
-				<blockquote class="alert" role="alert">{ view.Notice }</blockquote>
+		<hgroup>
+			if view.Account {
+				<h1>{ tr("web.account") }</h1>
 			} else {
-				<blockquote class="tip" role="status">{ view.Notice }</blockquote>
+				<h1>{ tr("web.welcome") }</h1>
+				<p>{ tr("web.home_help") }</p>
 			}
-		}
+		</hgroup>
 		<blockquote class="warn" role="alert" hidden data-attr:hidden="!$error || !!$errorForm" data-text="$error"></blockquote>
-		<p role="status" hidden data-attr:hidden="!$notice" data-text="$notice"></p>
-		<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:1rem">
-			@emailChange(action, home, view.VerifyEmail, tr)
-			@Sessions(action, home, next, sessions, tr, language)
-		</div>
-		<section>
-			<hgroup><strong>{ tr("web.account_security") }</strong><p>{ tr("web.account_security_help") }</p></hgroup>
-			<p><span class="tag green">{ tr("web.passwordless") }</span> <span class="tag blue">{ tr("web.session_controls") }</span></p>
-			<details><summary>{ tr("web.email_change_explained") }</summary><p>{ tr("web.email_change_explanation") }</p></details>
-			<details><summary>{ tr("web.session_explained") }</summary><p>{ tr("web.session_explanation") }</p></details>
-		</section>
+		if view.Account {
+			<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:1rem;align-items:start">
+				<section class="card" style="min-width:0;overflow-wrap:anywhere">
+					<h3>{ tr("web.details") }</h3>
+					<dl><dt>{ tr("web.email") }</dt><dd>{ view.Email }</dd><dt>{ tr("web.created") }</dt><dd>@timestamp(language, view.Created, false)</dd></dl>
+				</section>
+				@Sessions(action, home, next, sessions, tr, language)
+			</div>
+		} else {
+			<section class="card"><h2>{ tr("web.institutional_space") }</h2><p>{ tr("web.institutional_help") }</p></section>
+		}
 	</section>
 }

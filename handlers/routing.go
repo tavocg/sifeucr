@@ -58,7 +58,7 @@ func (h *Handler) writeRoutingError(w http.ResponseWriter, r *http.Request, stat
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(status)
 			h.logger.Debug(message, logging.RequestArgs(r, status)...)
-			if err := errorpage.NotFound(h.localize(r, key), h.links).Render(r.Context(), w); err != nil {
+			if err := errorpage.NotFound(h.localize(r, key), h.links, func(key string) string { return h.localize(r, key) }).Render(r.Context(), w); err != nil {
 				h.logger.Error("failed to render not found page", logging.RequestArgs(r, status, "error", err)...)
 			}
 			return

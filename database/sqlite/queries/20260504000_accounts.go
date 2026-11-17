@@ -2,10 +2,7 @@ package queries
 
 import (
 	"context"
-	"errors"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 	"sifeucr/database"
 	"sifeucr/database/sqlite/db"
 )
@@ -20,19 +17,6 @@ func (q *SQLiteQuerier) EnsureAccountByEmail(ctx context.Context, email string, 
 		CreatedAt: createdAt,
 		AuthID:    authID,
 	})
-}
-
-func (q *SQLiteQuerier) UpdateAccountEmail(ctx context.Context, sub int64, email string) error {
-	err := q.queries.UpdateAccountEmail(ctx, db.UpdateAccountEmailParams{
-		Email: email,
-		Sub:   sub,
-	})
-	// This statement only changes email; other constraint errors remain failures.
-	var conflict *sqlite.Error
-	if errors.As(err, &conflict) && conflict.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
-		return database.ErrEmailUnavailable
-	}
-	return err
 }
 
 func (q *SQLiteQuerier) DeleteAccount(ctx context.Context, sub int64) error {

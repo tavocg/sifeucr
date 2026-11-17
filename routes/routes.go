@@ -17,15 +17,19 @@ const (
 	Root ID = iota
 	Login
 	LoginPage
-	Verify
+	DashboardPage
+	AccountPage
+	AboutPage
+	TermsPage
+	License
+
 	Refresh
 	Account
 	DeleteAccount
 	Sessions
 	RevokeSessions
 	RevokeSession
-	ChangeEmail
-	ConfirmEmail
+
 	Static
 	APIDocs
 	count
@@ -34,20 +38,24 @@ const (
 type Definition struct{ Method, Path string }
 
 var definitions = [count]Definition{
-	Root:           {"GET", "/"},
-	Login:          {"POST", "/auth/login"},
-	LoginPage:      {"GET", "/login"},
-	Verify:         {"POST", "/auth/verify"},
+	Root:          {"GET", "/"},
+	Login:         {"POST", "/auth/login"},
+	LoginPage:     {"GET", "/login"},
+	DashboardPage: {"GET", "/dashboard"},
+	AccountPage:   {"GET", "/dashboard/account"},
+	AboutPage:     {"GET", "/about"},
+	TermsPage:     {"GET", "/terms"},
+	License:       {"GET", "/s/LICENSE.txt"},
+
 	Refresh:        {"POST", "/auth/refresh"},
 	Account:        {"GET", "/account"},
 	DeleteAccount:  {"DELETE", "/account"},
 	Sessions:       {"GET", "/account/sessions"},
 	RevokeSessions: {"DELETE", "/account/sessions"},
 	RevokeSession:  {"DELETE", "/account/sessions/{id}"},
-	ChangeEmail:    {"PATCH", "/account/email/change"},
-	ConfirmEmail:   {"PATCH", "/account/email/change/confirm"},
-	Static:         {"GET", "/s/"},
-	APIDocs:        {"GET", "/s/api/{$}"},
+
+	Static:  {"GET", "/s/"},
+	APIDocs: {"GET", "/s/api/{$}"},
 }
 
 func (id ID) Definition() (Definition, error) {

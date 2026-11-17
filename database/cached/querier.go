@@ -17,15 +17,6 @@ type Querier struct {
 
 var _ database.Querier = (*Querier)(nil)
 
-func (q *Querier) UpdateAccountEmail(ctx context.Context, sub int64, email string) error {
-	if err := q.Querier.UpdateAccountEmail(ctx, sub, email); err != nil {
-		return err
-	}
-
-	q.invalidate(accountKey(sub))
-	return nil
-}
-
 func (q *Querier) DeleteAccount(ctx context.Context, sub int64) error {
 	if err := q.Querier.DeleteAccount(ctx, sub); err != nil {
 		return err

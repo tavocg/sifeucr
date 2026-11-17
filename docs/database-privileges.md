@@ -10,7 +10,7 @@ SIFEUCR_DB="$RUNTIME_DSN" sifeucr serve --auto-migrate=false
 
 Inject these variables through the deployment's secret store. Do not pass the
 migration account to server replicas. The migration command does not need JWT,
-OTP or SMTP secrets. A failed migration must prevent rollout; never clear a
+SMTP credentials. A failed migration must prevent rollout; never clear a
 MySQL pending marker to bypass failure. See [MySQL recovery](../AGENTS.md#mysql-migration-recovery).
 
 The runtime needs application DML and maintenance deletes, plus read access to
@@ -34,8 +34,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX,
 ON sifeucr.* TO 'sifeucr_migrate'@'<private-job-host>';
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.accounts TO 'sifeucr_runtime'@'<private-sifeucr-host>';
-GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.account_login_requests TO 'sifeucr_runtime'@'<private-sifeucr-host>';
-GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.account_email_change_requests TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.refresh_tokens TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.consumed_refresh_tokens TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.rate_limits TO 'sifeucr_runtime'@'<private-sifeucr-host>';

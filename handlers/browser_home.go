@@ -17,7 +17,11 @@ import (
 	"sifeucr/templates/meta"
 )
 
-func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int, title string, content templ.Component, reactive bool) {
+func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int, title string, content templ.Component, reactive bool, aside ...templ.Component) {
+	var navigation templ.Component
+	if len(aside) > 0 {
+		navigation = aside[0]
+	}
 	documentHeaders(w)
 	nonce := ""
 	if reactive {
@@ -40,15 +44,20 @@ func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Add("Vary", "Accept-Language")
 	w.WriteHeader(status)
-	if err := base.Page(base.PageParams{Nonce: nonce, Links: h.links, Head: base.HeadParams{Title: meta.AppTitle, Subtitle: title}, Body: base.BodyParams{Content: content}}).Render(r.Context(), w); err != nil {
+	if err := base.Page(base.PageParams{Tr: func(key string) string { return h.localize(r, key) }, Nonce: nonce, Links: h.links, Head: base.HeadParams{Title: meta.AppTitle, Subtitle: title}, Body: base.BodyParams{Content: content, Aside: navigation, Dashboard: navigation != nil}}).Render(r.Context(), w); err != nil {
 		h.logger.Error("failed to render browser page", "error", err)
 	}
 }
 
-func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies browser.Cookies, status int, notice string, verifyEmail bool) {
-	login, home := h.links.Mount("/login"), h.links.Mount("/home")
+func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies browser.Cookies, status int) {
+	login, home := h.links.Mount("/login"), h.links.Mount("/dashboard")
+	accountPage := h.links.Mount("/dashboard/account")
+	viewAccount := strings.HasSuffix(r.URL.Path, "/account")
+	if viewAccount {
+		home = accountPage
+	}
 	fragment := r.URL.Query().Get("fragment") == "sessions"
-	view := homepage.View{VerifyEmail: verifyEmail, Notice: notice, Failed: status >= 400}
+	view := homepage.View{Account: viewAccount}
 	// Verify once, then reuse the request identity for profile and session reads.
 	protected := middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := middleware.AuthenticatedIdentity(r.Context())
@@ -58,8 +67,13 @@ func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies br
 				return
 			}
 			view.Email = account.Email
+			view.Created = account.CreatedAt
 		}
-		h.ListSessions(w, r)
+		if viewAccount || fragment {
+			h.ListSessions(w, r)
+		} else {
+			httpx.WriteJSON(w, http.StatusOK, accountSessionsResponse{})
+		}
 	}))
 	reply := browser.Call(r, protected, nil, cookies.Read(r, "access"))
 	if reply.Status == http.StatusUnauthorized {
@@ -102,76 +116,11 @@ func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies br
 		}
 		return
 	}
-	h.browserPage(w, r, status, tr("web.home"), homepage.Home(login, home, next, rows, h.language(r), view, tr), true)
-}
-
-// Browser forms adapt existing JSON handlers, retaining live permission checks.
-func (h *Handler) browserEmailChange(w http.ResponseWriter, r *http.Request, cookies browser.Cookies) {
-	confirm := r.PostForm.Get("action") == "email_confirm"
-	var payload any = changeEmailRequest{NewEmail: r.PostForm.Get("new_email")}
-	next := http.HandlerFunc(h.RequestEmailChange)
-	fallback := "err.save_email_change"
-	if confirm {
-		payload = changeEmailConfirmRequest{OTP: r.PostForm.Get("otp")}
-		next, fallback = h.ConfirmEmailChange, "err.confirm_email_change"
+	title := tr("web.overview")
+	if viewAccount {
+		title = tr("web.account")
 	}
-	authenticated := false
-	var authenticatedRequest *http.Request
-	protected := middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authenticated = true
-		authenticatedRequest = r
-		h.requireEmailChangePermission(next).ServeHTTP(w, r)
-	}))
-	reply := browser.Call(r, protected, payload, cookies.Read(r, "access"))
-	if !authenticated && reply.Status == http.StatusUnauthorized {
-		browserRedirect(w, r, h.links.Mount("/login"))
-		return
-	}
-	if browserJSON(r) {
-		if reply.Status >= 400 {
-			browserForward(w, reply)
-			return
-		}
-		state := map[string]any{"emailVerify": !confirm, "error": "", "notice": ""}
-		if confirm {
-			profile := browser.Call(authenticatedRequest, http.HandlerFunc(h.GetAccount), nil, cookies.Read(r, "access"))
-			if profile.Status != 200 {
-				browserForward(w, profile)
-				return
-			}
-			var account accountResponse
-			if err := json.Unmarshal(profile.Body.Bytes(), &account); err != nil {
-				h.writeError(
-					w,
-					r,
-					http.StatusInternalServerError,
-					err,
-					"web.update_error",
-					"failed to decode updated browser account",
-				)
-				return
-			}
-			state["email"] = account.Email
-			state["notice"] = h.localize(r, "web.email_updated")
-		}
-		httpx.WriteJSON(w, 200, state)
-		return
-	}
-	if reply.Status >= 400 {
-		var failure struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(reply.Body.Bytes(), &failure) != nil || failure.Error == "" {
-			failure.Error = h.localize(r, fallback)
-		}
-		h.browserHome(w, r, cookies, reply.Status, failure.Error, confirm)
-		return
-	}
-	step := "verify"
-	if confirm {
-		step = "updated"
-	}
-	http.Redirect(w, r, h.links.Mount("/home")+"?email="+step, http.StatusSeeOther)
+	h.browserPage(w, r, status, title, homepage.Home(login, home, next, rows, h.language(r), view, tr), true, homepage.Aside(h.links.Mount("/dashboard"), accountPage, view, tr))
 }
 
 // Only the browser adapter negotiates JSON; the public API remains Bearer-only.

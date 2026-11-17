@@ -6,8 +6,9 @@ import (
 	"sifeucr/templates/meta"
 )
 
-templ NotFound(message string, links routes.Links) {
+templ NotFound(message string, links routes.Links, tr func(string) string) {
 	@base.Page(base.PageParams{
+ Tr: tr,
  Links: links,
 		Head: base.HeadParams{Title: meta.AppTitle, Subtitle: message},
 		Body: base.BodyParams{Content: notFoundContent(message)},

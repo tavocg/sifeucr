@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/mssola/useragent"
@@ -20,7 +19,7 @@ import (
 // the browser surface. API handlers, JSON contracts and Bearer authentication are
 // not modified.
 func (h *Handler) registerBrowserRoutes() {
-	const loginPath, homePath = "/login", "/home"
+	const loginPath, homePath = "/login", "/dashboard"
 	cookies := browser.Cookies{Path: h.links.Mount("/"), Secure: !h.dev}
 	if !strings.HasSuffix(cookies.Path, "/") {
 		cookies.Path += "/"
@@ -28,14 +27,14 @@ func (h *Handler) registerBrowserRoutes() {
 	login := h.links.Mount(loginPath)
 	home := h.links.Mount(homePath)
 	page := h.browserPage
-	showLogin := func(w http.ResponseWriter, r *http.Request, status int, email, message string, verify bool) {
+	showLogin := func(w http.ResponseWriter, r *http.Request, status int, email, message string) {
 		tr := func(key string) string { return h.localize(r, key) }
 		if browserJSON(r) && status >= 400 {
 			httpx.WriteJSONError(w, status, message)
 			return
 		}
-		resume := !verify && status == http.StatusOK && r.Method == http.MethodGet && cookies.Read(r, "refresh") != "" && r.URL.Query().Get("resume") != "0" && !prefetch(r)
-		page(w, r, status, tr("web.login"), loginpage.Login(login, email, message, verify, resume, tr), resume)
+		resume := status == http.StatusOK && r.Method == http.MethodGet && cookies.Read(r, "refresh") != "" && r.URL.Query().Get("resume") != "0" && !prefetch(r)
+		page(w, r, status, tr("web.login"), loginpage.Login(login, email, message, resume, tr), resume)
 	}
 
 	// GET never consumes a rotating token; the browser coordinates an automatic
@@ -45,7 +44,7 @@ func (h *Handler) registerBrowserRoutes() {
 		if err != nil {
 			h.logger.Error("failed to verify browser session", "error", err)
 			status, _ := httpx.ErrorStatus(r.Context(), http.StatusServiceUnavailable, "err.verify_bearer")
-			showLogin(w, r, status, "", h.localize(r, "err.verify_bearer"), false)
+			showLogin(w, r, status, "", h.localize(r, "err.verify_bearer"))
 			return
 		}
 		if authenticated {
@@ -53,7 +52,7 @@ func (h *Handler) registerBrowserRoutes() {
 			browserRedirect(w, r, home)
 			return
 		}
-		showLogin(w, r, http.StatusOK, r.URL.Query().Get("email"), "", r.URL.Query().Get("step") == "verify")
+		showLogin(w, r, http.StatusOK, "", "")
 	}))
 
 	// Production cross-origin form posts are rejected. Debug logs record the
@@ -89,7 +88,7 @@ func (h *Handler) registerBrowserRoutes() {
 		w.Header().Set("Cache-Control", "no-store")
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := r.ParseForm(); err != nil {
-			showLogin(w, r, 400, "", h.localize(r, "err.invalid_login_body"), false)
+			showLogin(w, r, 400, "", h.localize(r, "err.invalid_login_body"))
 			return
 		}
 		email := r.PostForm.Get("email")
@@ -109,11 +108,7 @@ func (h *Handler) registerBrowserRoutes() {
 			if status >= 500 {
 				message = h.localize(r, "err.refresh_session")
 			}
-			showLogin(w, r, status, "", message, false)
-			return
-		}
-		if action == "email_change" || action == "email_confirm" {
-			h.browserEmailChange(w, r, cookies)
+			showLogin(w, r, status, "", message)
 			return
 		}
 		if action == "revoke" {
@@ -136,7 +131,7 @@ func (h *Handler) registerBrowserRoutes() {
 					browserForward(w, reply)
 					return
 				}
-				showLogin(w, r, reply.Status, "", h.localize(r, "err.revoke_session"), false)
+				showLogin(w, r, reply.Status, "", h.localize(r, "err.revoke_session"))
 				return
 			}
 			if current {
@@ -145,7 +140,7 @@ func (h *Handler) registerBrowserRoutes() {
 			} else if browserJSON(r) {
 				httpx.WriteJSON(w, 200, map[string]any{"refreshSessions": true, "error": ""})
 			} else {
-				browserRedirect(w, r, home)
+				browserRedirect(w, r, h.links.Mount("/dashboard/account"))
 			}
 			return
 		}
@@ -156,7 +151,7 @@ func (h *Handler) registerBrowserRoutes() {
 				if err != nil && !errors.Is(err, goauth.ErrInvalidToken) && !errors.Is(err, goauth.ErrExpiredToken) {
 					h.logger.Error("failed to verify browser session before logout", "error", err)
 					status, _ := httpx.ErrorStatus(r.Context(), http.StatusServiceUnavailable, "err.verify_bearer")
-					showLogin(w, r, status, "", h.localize(r, "err.verify_bearer"), false)
+					showLogin(w, r, status, "", h.localize(r, "err.verify_bearer"))
 					return
 				}
 				if err == nil {
@@ -165,7 +160,7 @@ func (h *Handler) registerBrowserRoutes() {
 					revoke := middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, http.HandlerFunc(h.RevokeSession))
 					reply := browser.Call(request, revoke, nil, access)
 					if reply.Status >= 400 {
-						showLogin(w, r, reply.Status, "", h.localize(r, "err.revoke_session"), false)
+						showLogin(w, r, reply.Status, "", h.localize(r, "err.revoke_session"))
 						return
 					}
 				}
@@ -190,11 +185,9 @@ func (h *Handler) registerBrowserRoutes() {
 		var reply *browser.Reply
 		switch action {
 		case "login":
-			reply = browser.Call(r, http.HandlerFunc(h.LoginOrCreateAccount), loginRequest{Email: email}, "")
-		case "verify":
-			reply = browser.Call(r, http.HandlerFunc(h.VerifyAuthenticationCode), verifyRequest{Email: email, OTP: r.PostForm.Get("otp")}, "")
+			reply = browser.Call(r, http.HandlerFunc(h.LoginOrCreateAccount), loginRequest{Email: email, Password: r.PostForm.Get("password")}, "")
 		default:
-			showLogin(w, r, 400, email, h.localize(r, "err.invalid_login_body"), false)
+			showLogin(w, r, 400, email, h.localize(r, "err.invalid_login_body"))
 			return
 		}
 		if reply.Status >= 400 {
@@ -204,30 +197,24 @@ func (h *Handler) registerBrowserRoutes() {
 			if json.Unmarshal(reply.Body.Bytes(), &failure) != nil {
 				failure.Error = h.localize(r, "err.finalize_login")
 			}
-			showLogin(w, r, reply.Status, email, failure.Error, action == "verify")
-			return
-		}
-		if action == "login" {
-			http.Redirect(w, r, login+"?step=verify&email="+url.QueryEscape(email), http.StatusSeeOther)
+			showLogin(w, r, reply.Status, email, failure.Error)
 			return
 		}
 		var tokens browser.Tokens
 		if err := json.Unmarshal(reply.Body.Bytes(), &tokens); err != nil || tokens.Access == "" || tokens.Refresh == "" {
-			showLogin(w, r, 500, email, h.localize(r, "err.issue_tokens"), false)
+			showLogin(w, r, 500, email, h.localize(r, "err.issue_tokens"))
 			return
 		}
 		cookies.Save(w, tokens)
 		w.Header().Set("Cache-Control", "no-store")
 		browserRedirect(w, r, home)
 	})))
-	h.Add("GET", homePath, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Vary", "Accept")
-		notice := ""
-		if r.URL.Query().Get("email") == "updated" {
-			notice = h.localize(r, "web.email_updated")
-		}
-		h.browserHome(w, r, cookies, http.StatusOK, notice, r.URL.Query().Get("email") == "verify")
-	})
+	for _, id := range []routes.ID{routes.DashboardPage, routes.AccountPage} {
+		h.AddRoute(id, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "Accept")
+			h.browserHome(w, r, cookies, http.StatusOK)
+		}))
+	}
 }
 
 // browserAuthenticated distinguishes invalid credentials from dependency failures.

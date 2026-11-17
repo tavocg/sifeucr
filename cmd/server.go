@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -13,9 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	email "github.com/tavocg/go-email"
 	"github.com/tavocg/go-i18n"
-	secrets "github.com/tavocg/go-secrets"
-	"github.com/tavocg/go-secrets/otp"
 	"sifeucr/auth"
 	"sifeucr/cache/memory"
 	"sifeucr/database"
@@ -27,29 +24,25 @@ import (
 )
 
 type serverConfig struct {
-	SMTPAddress     string
-	SMTPUser        string
-	SMTPPassword    string
-	SMTPStartTLS    bool
-	DrainDelay      time.Duration
-	ShutdownTimeout time.Duration
-	DatabaseDSN     string
-	AutoMigrate     bool
-	MaxConnections  int
-	CacheEnabled    bool
-	Dev             bool
-	LogLevel        string
-	LogFormat       string
-	AuthSecret      string
-	OTPSecret       string
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
-	RootPrefix      string
-	CORSOrigins     []string
-	CSRFOrigins     []string
-	MailFrom        string
-	Host            string
-	Port            int
+	AuthSMTPAddress  string
+	AuthSMTPStartTLS bool
+	DrainDelay       time.Duration
+	ShutdownTimeout  time.Duration
+	DatabaseDSN      string
+	AutoMigrate      bool
+	MaxConnections   int
+	CacheEnabled     bool
+	Dev              bool
+	LogLevel         string
+	LogFormat        string
+	AuthSecret       string
+	AccessTokenTTL   time.Duration
+	RefreshTokenTTL  time.Duration
+	RootPrefix       string
+	CORSOrigins      []string
+	CSRFOrigins      []string
+	Host             string
+	Port             int
 }
 
 func runServer(cfg serverConfig) error {
@@ -65,17 +58,17 @@ func runServer(cfg serverConfig) error {
 		return err
 	}
 	if cfg.Dev {
-		logger.Warn("development mode allows all origins, bypasses browser CSRF checks and logs plaintext OTPs at debug level")
+		logger.Warn("development mode allows all origins, bypasses browser CSRF checks and skips institutional credential verification")
 	}
 
-	otpSecret, err := resolveOTPSecret(cfg, logger)
-	if err != nil {
-		return err
+	if len(cfg.AuthSecret) < 32 && !cfg.Dev {
+		return errors.New("auth.secret must contain at least 32 bytes outside development mode")
 	}
-
-	otpSigner, err := otp.NewSigner(otpSecret)
-	if err != nil {
-		return err
+	if !cfg.Dev {
+		host, port, err := net.SplitHostPort(cfg.AuthSMTPAddress)
+		if err != nil || host == "" || port == "" {
+			return errors.New("auth.smtp.address must be host:port outside development mode")
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -107,13 +100,6 @@ func runServer(cfg serverConfig) error {
 		return err
 	}
 
-	mailer, err := newMailer(cfg)
-	if err != nil {
-		return err
-	}
-	if cfg.SMTPAddress == "" {
-		logger.Warn("SMTP is not configured; verification emails will be discarded")
-	}
 	h, err := handlers.NewHandler(handlers.Options{
 		Logger:        logger,
 		Dev:           cfg.Dev,
@@ -123,9 +109,7 @@ func runServer(cfg serverConfig) error {
 		RootPrefix:    cfg.RootPrefix,
 		CORSOrigins:   cfg.CORSOrigins,
 		CSRFOrigins:   cfg.CSRFOrigins,
-		Mailer:        mailer,
-		MailFrom:      cfg.MailFrom,
-		OTPSigner:     otpSigner,
+		Credentials:   email.CredentialsConfig{Address: cfg.AuthSMTPAddress, StartTLS: cfg.AuthSMTPStartTLS},
 	})
 	if err != nil {
 		return err
@@ -154,31 +138,4 @@ func runServer(cfg serverConfig) error {
 
 	logger.Info("listening", "addr", listener.Addr().String())
 	return serveHTTP(ctx, srv, listener, cfg.DrainDelay, cfg.ShutdownTimeout)
-}
-
-// resolveOTPSecret enforces the signing-secret policy and returns the effective
-// OTP key. Development may omit it, in which case pending codes do not survive
-// a restart.
-func resolveOTPSecret(cfg serverConfig, logger *slog.Logger) (string, error) {
-	for _, secret := range []struct{ name, value string }{
-		{"auth.secret", cfg.AuthSecret},
-		{"otp.secret", cfg.OTPSecret},
-	} {
-		if len(secret.value) >= 32 {
-			continue
-		}
-		if !cfg.Dev {
-			return "", fmt.Errorf("%s must contain at least 32 bytes outside development mode", secret.name)
-		}
-		logger.Warn("short signing secret allowed only in development", "setting", secret.name, "secret_bytes", len(secret.value))
-	}
-	if cfg.OTPSecret != "" && cfg.OTPSecret == cfg.AuthSecret {
-		return "", errors.New("OTP HMAC secret must differ from the JWT signing secret")
-	}
-
-	if cfg.OTPSecret != "" {
-		return cfg.OTPSecret, nil
-	}
-
-	return secrets.RandStr()
 }

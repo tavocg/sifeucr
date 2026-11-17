@@ -26,6 +26,7 @@ func (h *Handler) Root(w http.ResponseWriter, r *http.Request) {
 		documentHeaders(w)
 		w.Header().Set("Content-Type", contentType)
 		page := base.Page(base.PageParams{
+			Tr:    func(key string) string { return L(key) },
 			Links: h.links,
 			Head: base.HeadParams{
 				Title:       meta.AppTitle,

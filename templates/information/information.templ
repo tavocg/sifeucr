@@ -1,0 +1,28 @@
+package information
+
+import "sifeucr/routes"
+import "sifeucr/templates/meta"
+
+templ About(links routes.Links, tr func(string) string) {
+	<article>
+		<h1>{ tr("web.about") }</h1>
+		<p>{ tr("about.intro") }</p>
+		<h2>{ tr("about.access_title") }</h2>
+		<p>{ tr("about.access") }</p>
+		<h2>{ tr("about.source_title") }</h2>
+		<p>{ tr("about.source") }</p>
+		<p><a href={ meta.SourceURL }>{ tr("web.source") }</a> · <a href={ links.URL(routes.License) }>{ tr("web.license") }</a></p>
+	</article>
+}
+
+templ Terms(tr func(string) string) {
+	<article>
+		<h1>{ tr("web.terms") }</h1>
+		<section><h2>{ tr("terms.use_title") }</h2><p>{ tr("terms.use") }</p></section>
+		<section><h2>{ tr("terms.credentials_title") }</h2><p>{ tr("terms.credentials") }</p></section>
+		<section><h2>{ tr("terms.data_title") }</h2><p>{ tr("terms.data") }</p></section>
+		<section><h2>{ tr("terms.cookies_title") }</h2><p>{ tr("terms.cookies") }</p></section>
+		<section><h2>{ tr("terms.sessions_title") }</h2><p>{ tr("terms.sessions") }</p></section>
+		<section><h2>{ tr("terms.contact_title") }</h2><p>{ tr("terms.contact") }</p></section>
+	</article>
+}

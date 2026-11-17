@@ -87,7 +87,7 @@ func TestOldReadCannotRefillAfterInvalidation(t *testing.T) {
 			t.Fatal("initial read did not reach the database")
 		}
 		updated := make(chan error, 1)
-		go func() { updated <- db.Querier().UpdateAccountEmail(ctx, sub, "new@example.com") }()
+		go func() { updated <- db.Querier().DeleteAccount(ctx, sub) }()
 		select {
 		case err := <-updated:
 			if err != nil {
@@ -105,8 +105,8 @@ func TestOldReadCannotRefillAfterInvalidation(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("initial read did not finish")
 		}
-		profile(t, db.Querier(), sub, "new@example.com")
-		profile(t, db.Querier(), sub, "new@example.com")
+		absent(t, db, db.Querier(), sub)
+		absent(t, db, db.Querier(), sub)
 	})
 }
 
@@ -155,10 +155,6 @@ func TestCacheFailuresPreserveDatabaseBehavior(t *testing.T) {
 				}
 				db := cached.New(base, s)
 				profile(t, db.Querier(), sub, "old@example.com")
-				if err := db.Querier().UpdateAccountEmail(t.Context(), sub, "new@example.com"); err != nil {
-					t.Fatal(err)
-				}
-				profile(t, db.Querier(), sub, "new@example.com")
 				ctx, cancel := context.WithCancel(t.Context())
 				cancel()
 				if _, err := db.Querier().SelectAccountBySub(ctx, sub); !errors.Is(err, context.Canceled) {
@@ -184,10 +180,10 @@ func TestTransactionBypassesCacheAndInvalidatesOnlyOnCommit(t *testing.T) {
 		sets, deletes := s.sets.Load(), s.deletes.Load()
 		rollback := errors.New("rollback")
 		err := db.WithTx(t.Context(), func(q database.Querier) error {
-			if err := q.UpdateAccountEmail(t.Context(), sub, "rollback@example.com"); err != nil {
+			if err := q.DeleteAccount(t.Context(), sub); err != nil {
 				return err
 			}
-			profile(t, q, sub, "rollback@example.com")
+			absent(t, db, q, sub)
 			return rollback
 		})
 		if !errors.Is(err, rollback) {
@@ -198,10 +194,10 @@ func TestTransactionBypassesCacheAndInvalidatesOnlyOnCommit(t *testing.T) {
 			t.Fatal("rolled-back transaction changed the cached entry")
 		}
 		if err := db.WithTx(t.Context(), func(q database.Querier) error {
-			if err := q.UpdateAccountEmail(t.Context(), sub, "committed@example.com"); err != nil {
+			if err := q.DeleteAccount(t.Context(), sub); err != nil {
 				return err
 			}
-			profile(t, q, sub, "committed@example.com")
+			absent(t, db, q, sub)
 			if s.sets.Load() != sets || s.deletes.Load() != deletes {
 				t.Error("cache changed before the transaction committed")
 			}
@@ -212,6 +208,13 @@ func TestTransactionBypassesCacheAndInvalidatesOnlyOnCommit(t *testing.T) {
 		if s.deletes.Load() != deletes+1 {
 			t.Fatal("commit did not invalidate the profile")
 		}
-		profile(t, db.Querier(), sub, "committed@example.com")
+		absent(t, db, db.Querier(), sub)
 	})
+}
+
+func absent(t *testing.T, db database.Database, q database.Querier, sub int64) {
+	t.Helper()
+	if _, err := q.SelectAccountBySub(t.Context(), sub); !db.IsErrNotFound(err) {
+		t.Fatalf("deleted profile remains readable: %v", err)
+	}
 }

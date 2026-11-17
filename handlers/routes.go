@@ -37,7 +37,7 @@ func (h *Handler) validateRoutes() error {
 		}
 	}
 	// These linked assets must exist in the binary, not merely match the static route.
-	for _, name := range []string{"static/api/index.html", "static/" + templates.SemanticStylesheetPath, "static/" + templates.DatastarScriptPath} {
+	for _, name := range []string{"static/LICENSE.txt", "static/api/index.html", "static/" + templates.SemanticStylesheetPath, "static/" + templates.DatastarScriptPath} {
 		info, err := fs.Stat(staticFS, name)
 		if err != nil {
 			return fmt.Errorf("linked asset %s: %w", name, err)

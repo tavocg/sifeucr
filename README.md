@@ -50,13 +50,20 @@ Extra application flags can be passed with `go tool air -- --port 3081`.
 Browser login, protected home and session listing are described in
 [the browser authentication guide](docs/browser.md).
 
-`--dev` defaults to debug-level text logs with source locations, logs OTP values,
+`--dev` defaults to debug-level text logs with source locations, skips institutional credential verification,
 permits all CORS origins and bypasses browser form CSRF checks. It also allows
-empty/short signing secrets with warnings and uses browser cookies suitable for
+empty/short signing secrets and uses browser cookies suitable for
 local HTTP. Development skips the readiness drain delay on shutdown while
 still allowing active requests to finish. Production keeps the configured
-`http.drain-delay`. An empty OTP secret becomes a temporary per-process key. Explicit
+`http.drain-delay`. Explicit
 log settings in flags, environment or configuration override the dev defaults.
+
+Production login requires `auth.smtp.address` (or `SIFEUCR_AUTH_SMTP_ADDRESS`)
+with the institutional SMTP host and port. Implicit TLS is the default; set
+`auth.smtp.starttls=true` for required STARTTLS. Users sign in with their email
+and institutional password. Development accepts a valid email without verification.
+Stop old writers before applying migration 20261116000, which removes the retired
+OTP challenge tables and email-change permission while preserving accounts and sessions.
 
 ## Configuration
 
@@ -112,7 +119,7 @@ and the weekly dependency review.
 - Add matching migrations and queries for SQLite, PostgreSQL and MySQL, then run
   `go generate ./database`. Keep driver-specific details in their adapters.
 - Keep read-through caching in `database/cached`; never cache authentication,
-  permissions, OTPs or refresh tokens.
+  permissions or refresh tokens.
 - Add messages to both locales, update `docs/api.yaml`, and run `npm run redocly`.
 
 See [AGENTS.md](AGENTS.md) for project conventions and verification commands.

@@ -3,6 +3,7 @@ package base
 import "sifeucr/routes"
 
 type PageParams struct {
+	Tr func(string) string
 	Nonce string
 	Links routes.Links
 	Head  HeadParams
@@ -17,6 +18,6 @@ if page.Nonce != "" {
 } }}
 	<html { attrs... }>
 		@head(page.Head, page.Links, page.Nonce != "")
-		@body(page.Body, page.Links)
+		@body(page.Body, page.Links, page.Tr)
 	</html>
 }

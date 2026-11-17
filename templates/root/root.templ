@@ -52,7 +52,7 @@ templ RootMain(links routes.Links, tr func(string, ...any) string) {
     <p><span class="tag blue">GET</span> <code>{ links.URL(routes.Root) }</code></p>
     <pre><code>{ fmt.Sprintf("{\n  \"message\": %q\n}", tr("root.greeting")) }</code></pre>
     <dl>
-     <div><dt>{ tr("root.authentication") }</dt><dd><span class="tag blue">Email OTP</span></dd></div>
+     <div><dt>{ tr("root.authentication") }</dt><dd><span class="tag blue">SMTP</span></dd></div>
      <div><dt>{ tr("root.sessions") }</dt><dd>{ tr("root.revocable") }</dd></div>
      <div><dt>{ tr("root.documentation") }</dt><dd>OpenAPI</dd></div>
     </dl>

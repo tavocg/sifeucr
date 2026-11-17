@@ -54,18 +54,10 @@ def request(url, path, body=None, token=None, method=None, expected=204):
         return json.loads(raw) if raw else None
 
 
-def otp(container):
-    for line in reversed(docker("logs", container).splitlines()):
-        record = json.loads(line)
-        if record.get("otp", "").isdigit():
-            return record["otp"]
-    raise AssertionError("no development OTP in log")
-
-
 def rejected_start(name, dsn, message):
     container = start(name, "-e", "SIFEUCR_DB=" + dsn,
                       "-e", "SIFEUCR_AUTH_SECRET=" + "a" * 32,
-                      "-e", "SIFEUCR_OTP_SECRET=" + "b" * 32,
+                      "-e", "SIFEUCR_AUTH_SMTP_ADDRESS=smtp.example.com:465",
                       IMAGE, "serve", "--auto-migrate=false")
     wait(lambda: docker("inspect", "-f", "{{.State.Running}}", container) == "false", 15)
     assert docker("inspect", "-f", "{{.State.ExitCode}}", container) != "0"
@@ -104,7 +96,7 @@ def exercise(backend):
     docker(*sql, grants)
     common = ["--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
               "-p", "127.0.0.1::3080", "-e", "SIFEUCR_DB=" + runtime,
-              "-e", "SIFEUCR_AUTH_SECRET=" + "a" * 32, "-e", "SIFEUCR_OTP_SECRET=" + "b" * 32,
+              "-e", "SIFEUCR_AUTH_SECRET=" + "a" * 32, "-e", "SIFEUCR_AUTH_SMTP_ADDRESS=smtp.example.com:465",
               IMAGE, "serve", "--dev", "--logfmt", "json", "--loglvl", "debug", "--auto-migrate=false",
               "--db-max-connections", "2", "--root", "/api", "--drain-delay", "2s"]
     a = start(backend + "-a", *common)
@@ -115,14 +107,9 @@ def exercise(backend):
         request(url, "/livez")
     ua, ub = urls
     email = "replicas@example.com"
-    request(ua, "/api/auth/login", {"email": email})
-    request(ub, "/api/auth/login", {"email": email}, expected=429)
-    tokens = request(ub, "/api/auth/verify", {"email": email, "otp": otp(a)}, expected=200)
+    tokens = request(ua, "/api/auth/login", {"email": email}, expected=200)
     access = tokens["access_token"]
     assert request(ua, "/api/account", token=access, expected=200)["email"] == email
-    request(ub, "/api/account/email/change", {"new_email": "changed@example.com"}, access, "PATCH")
-    request(ua, "/api/account/email/change/confirm", {"otp": otp(b)}, access, "PATCH")
-    assert request(ub, "/api/account", token=access, expected=200)["email"] == "changed@example.com"
 
     def refresh(url):
         # Record both outcomes without assuming which replica wins.
@@ -138,10 +125,9 @@ def exercise(backend):
     request(ua, "/api/account/sessions", token=fresh["access_token"], method="DELETE")
     request(ub, "/api/account", token=fresh["access_token"], expected=401)
     request(ub, "/api/auth/refresh", {"refresh_token": fresh["refresh_token"]}, expected=401)
-    request(ua, "/api/auth/login", {"email": "budget@example.com"})
     for i in range(5):
-        request(urls[i % 2], "/api/auth/verify", {"email": "budget@example.com", "otp": "invalid"}, expected=401)
-    request(ub, "/api/auth/verify", {"email": "budget@example.com", "otp": otp(a)}, expected=429)
+        request(urls[i % 2], "/api/auth/login", {"email": "budget@example.com"}, expected=200)
+    request(ub, "/api/auth/login", {"email": "budget@example.com"}, expected=429)
 
     docker("kill", "--signal", "TERM", a)
     # Development skips the readiness drain delay, so the listener may already
@@ -159,7 +145,7 @@ def exercise(backend):
     wait(lambda: request(ub, "/readyz") is None)
     docker("stop", "-t", "35", b)
     assert docker("inspect", "-f", "{{.State.ExitCode}}", b) == "0"
-    print(backend + ": cross-replica OTP, quotas, profile, refresh, revocation, health and SIGTERM passed", flush=True)
+    print(backend + ": cross-replica login, quotas, profile, refresh, revocation, health and SIGTERM passed", flush=True)
 
 
 docker("network", "create", PREFIX)

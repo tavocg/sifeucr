@@ -1,8 +1,8 @@
 # Multiple instances and Kubernetes
 
 Run HTTP replicas against the **same PostgreSQL or MySQL database**, with identical
-JWT/OTP secrets and token TTLs. No session affinity or shared filesystem is needed.
-Authentication, revocation, permissions, OTP consumption and identity quotas use
+JWT secrets and institutional SMTP configuration and token TTLs. No session affinity or shared filesystem is needed.
+Authentication, revocation, permissions and identity quotas use
 SQL. Keep these operations on the authoritative database, not lagging read replicas.
 SQLite remains supported for a single-instance installation.
 
@@ -15,15 +15,12 @@ SQLite remains supported for a single-instance installation.
 | `cache.enabled` / `--cache` | `false` | Optional local profile cache with no cross-process invalidation. |
 | `http.drain-delay` / `--drain-delay` | `5s` | Continue serving after readiness withdrawal so routing can converge; skipped in `--dev`. |
 | `http.shutdown-timeout` / `--shutdown-timeout` | `25s` | Finish active requests after closing listeners. |
-| `mail.smtp.address` / `--smtp-address` | empty | SMTP host:port; empty means discard mail with a startup warning. |
-| `mail.smtp.user` / `--smtp-user` | empty | SMTP username. |
-| `mail.smtp.password` / `--smtp-password` | empty | SMTP password. |
-| `mail.smtp.starttls` / `--smtp-starttls` | `false` | Require STARTTLS instead of implicit TLS. |
+| `auth.smtp.address` / `--auth-smtp-address` | empty | Institutional SMTP host:port; required outside development. |
+| `auth.smtp.starttls` / `--auth-smtp-starttls` | `false` | Require STARTTLS instead of implicit TLS. |
 
 Environment names replace dots/hyphens with underscores and add `SIFEUCR_`, for
 example `SIFEUCR_DATABASE_AUTO_MIGRATE=false`. The existing `SIFEUCR_DB` remains the DSN.
-No plaintext SMTP or insecure TLS mode is added. Configure `SIFEUCR_MAIL_FROM` and
-use a trusted CA (custom CAs can be mounted and selected with `SSL_CERT_FILE`).
+No plaintext SMTP or insecure TLS mode is added. Use a trusted CA (custom CAs can be mounted and selected with `SSL_CERT_FILE`).
 
 The optional cache only invalidates locally; its 20-second TTL starts on cache
 insertion. Keep it disabled for immediate profile visibility across replicas.
@@ -41,8 +38,8 @@ this repository does not assume a registry or publish credentials.
 Create two Kubernetes Secrets from protected environment files:
 
 - `sifeucr-runtime`: `SIFEUCR_DB` (runtime SQL credentials), `SIFEUCR_AUTH_SECRET`,
-  `SIFEUCR_OTP_SECRET`, `SIFEUCR_MAIL_FROM`, `SIFEUCR_MAIL_SMTP_ADDRESS` and any SMTP credentials.
-- `sifeucr-migrations`: `SIFEUCR_DB` with schema-changing privileges. No JWT, OTP or SMTP
+  `SIFEUCR_AUTH_SMTP_ADDRESS` and optionally `SIFEUCR_AUTH_SMTP_STARTTLS`.
+- `sifeucr-migrations`: `SIFEUCR_DB` with schema-changing privileges. No JWT or SMTP
   secrets are needed to run `sifeucr migrate`.
 
 ```sh
@@ -111,16 +108,15 @@ external scheduler is required for the current cleanup semantics.
 
 ## Secrets and delivery semantics
 
-Run without `--dev` in production. Both secrets require at least 32 bytes and must
-be distinct. Keep them identical across replicas and keep node clocks synchronized.
-There is currently one active key per purpose. Do not roll new secrets through a
-mixed fleet: use a coordinated cutover, accepting JWT invalidation and pending OTP
-invalidation. Seamless key rotation is not implemented by this change.
+Run without `--dev` in production. The JWT secret requires at least 32 bytes.
+Keep it identical across replicas and keep node clocks synchronized. There is
+currently one active signing key; a coordinated key rotation invalidates existing
+JWTs. Seamless key rotation is not implemented.
 
-SMTP runs synchronously with a timeout, after persisting the challenge. Ambiguous
-failures retain the challenge and quotas. A process crash can leave an unsent
-challenge; there is no durable mail outbox or automatic redelivery. These semantics
-are unchanged; a queue is not required to share sessions across replicas.
+SMTP credential verification runs synchronously with a ten-second timeout and
+verified TLS, before creating a local account or issuing tokens. No password is
+persisted and no verification email is sent. Stop old application writers before
+migration 20261116000 removes OTP challenge tables and the email-change permission.
 
 ## Verification
 
@@ -141,7 +137,7 @@ Validation completed on this branch:
 - All five Kubernetes resources passed strict kubeconform schema validation.
 - CI now builds the image and runs the smoke test after the existing Go checks.
 
-The smoke test intentionally retrieves OTPs from development logs; it does not
+The smoke test uses development credential bypass; it does not
 contact a real SMTP provider. No Kubernetes cluster rollout or gateway propagation
 measurement was performed. Validate those against your deployment environment.
 

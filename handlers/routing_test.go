@@ -10,12 +10,11 @@ import (
 	"testing"
 	"time"
 
+	email "github.com/tavocg/go-email"
 	"github.com/tavocg/go-i18n"
-	"github.com/tavocg/go-secrets/otp"
 	"sifeucr/auth"
 	"sifeucr/database/sqlite"
 	locales "sifeucr/i18n"
-	"sifeucr/mailer/noop"
 	"sifeucr/routes"
 	"sifeucr/templates"
 )
@@ -45,20 +44,14 @@ func testHandlerOptions(t *testing.T, rootPrefix string) Options {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := otp.NewSigner("independent-test-otp-secret")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return Options{
+		Credentials:   email.CredentialsConfig{Address: "smtp.example.com:465"},
 		Logger:        testLogger(),
 		DB:            db,
 		Authenticator: authenticator,
 		Localizer:     localizer,
 		RootPrefix:    rootPrefix,
-		Mailer:        noop.Mailer{},
-		MailFrom:      "test@example.com",
-		OTPSigner:     signer,
 	}
 }
 
@@ -87,7 +80,7 @@ func TestRoutesUseRootPrefix(t *testing.T) {
 	}{
 		{name: "browser login", method: "GET", path: "/api/login", wantStatus: 200, wantBody: `action="/api/login"`},
 		{name: "pinned Datastar", method: "GET", path: "/api/s/" + templates.DatastarScriptPath, wantStatus: 200},
-		{name: "protected browser home", method: "GET", path: "/api/home", wantStatus: 303, wantLocation: "/api/login"},
+		{name: "protected browser home", method: "GET", path: "/api/dashboard", wantStatus: 303, wantLocation: "/api/login"},
 		{
 			name:       "root JSON",
 			method:     http.MethodGet,

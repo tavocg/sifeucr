@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
 
 	auth "github.com/tavocg/go-auth"
-	secrets "github.com/tavocg/go-secrets"
 	appauth "sifeucr/auth"
 	"sifeucr/database"
 	"sifeucr/internal/httpx"
@@ -16,12 +16,8 @@ import (
 )
 
 type loginRequest struct {
-	Email string `json:"email"`
-}
-
-type verifyRequest struct {
-	Email string `json:"email"`
-	OTP   string `json:"otp"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type refreshRequest struct {
@@ -30,7 +26,6 @@ type refreshRequest struct {
 
 func (h *Handler) registerAuthRoutes() {
 	h.AddRoute(routes.Login, http.HandlerFunc(h.LoginOrCreateAccount))
-	h.AddRoute(routes.Verify, http.HandlerFunc(h.VerifyAuthenticationCode))
 	h.AddRoute(routes.Refresh, http.HandlerFunc(h.RefreshSession))
 }
 
@@ -55,88 +50,44 @@ func (h *Handler) LoginOrCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.allowOTPIssuance(w, r, otpPurposeLogin, email) {
-		return
-	}
-
-	code, err := secrets.RandOTP()
-	if err != nil {
-		h.writeError(
-			w,
-			r,
-			http.StatusInternalServerError,
-			err,
-			"err.generate_login_otp",
-			"failed to generate login otp",
-		)
-		return
-	}
-
-	codeHash := h.signOTP(otpPurposeLogin, email, code)
-	expiresAt := time.Now().UTC().Add(otpLifetime).Unix()
-	if err := h.db.Querier().UpsertAccountLoginRequest(r.Context(), email, codeHash, expiresAt); err != nil {
-		h.writeError(
-			w,
-			r,
-			http.StatusInternalServerError,
-			err,
-			"err.save_login",
-			"failed to upsert login request",
-		)
-		return
-	}
-
-	if !h.sendOTP(w, r, email, code, otpPurposeLogin) {
-		return
-	}
-
-	h.logger.Debug("generated login otp", "email", developmentValue(h.dev, email), "otp", developmentValue(h.dev, code), "expires_at", expiresAt)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-type sessionResponse struct {
-	AccessToken           string `json:"access_token"`
-	RefreshToken          string `json:"refresh_token"`
-	ExpiresIn             int64  `json:"expires_in"`
-	RefreshTokenExpiresIn int64  `json:"refresh_token_expires_in"`
-}
-
-func (h *Handler) VerifyAuthenticationCode(w http.ResponseWriter, r *http.Request) {
-
-	req, ok := decodeBody[verifyRequest](h, w, r,
-		"err.invalid_verify_body",
-		"invalid verify request body",
-	)
-	if !ok {
-		return
-	}
-
-	email := normalizeEmail(req.Email)
-	if email == "" {
+	if !h.dev && req.Password == "" {
 		h.writeStatus(
 			w,
 			r,
 			http.StatusBadRequest,
-			"err.invalid_verify_email",
-			"invalid verify email",
+			"err.missing_password",
+			"missing login password",
 		)
 		return
 	}
-
-	if !h.allowOTPVerification(w, r, otpPurposeLogin, email) {
+	if !h.allowLoginAttempt(w, r, email) {
 		return
 	}
-
-	if !h.checkOTP(w, r, req.OTP, "err.invalid_login_otp") {
-		return
+	if !h.dev {
+		if err := h.verifyCredentials(r.Context(), h.credentials, email, req.Password); err != nil {
+			var smtpError *textproto.Error
+			if errors.As(err, &smtpError) && smtpError.Code == 535 {
+				h.writeStatus(
+					w,
+					r,
+					http.StatusUnauthorized,
+					"err.invalid_credentials",
+					"institutional credentials rejected",
+				)
+			} else {
+				h.writeStatus(
+					w,
+					r,
+					http.StatusBadGateway,
+					"err.credentials_unavailable",
+					"institutional authentication unavailable",
+				)
+			}
+			return
+		}
 	}
-
-	codeHash := h.signOTP(otpPurposeLogin, email, req.OTP)
 	var subject int64
 	if err := h.db.WithTx(r.Context(), func(q database.Querier) error {
-		if _, err := q.ConsumeAccountLoginRequest(r.Context(), email, codeHash, time.Now().Unix()); err != nil {
-			return err
-		}
 
 		var err error
 		subject, err = q.EnsureAccountByEmail(r.Context(), email, time.Now().UTC().Unix())
@@ -150,23 +101,13 @@ func (h *Handler) VerifyAuthenticationCode(w http.ResponseWriter, r *http.Reques
 
 		return nil
 	}); err != nil {
-		if h.db.IsErrNotFound(err) {
-			h.writeStatus(
-				w,
-				r,
-				http.StatusUnauthorized,
-				"err.invalid_login_otp",
-				"invalid or expired login code",
-			)
-			return
-		}
 		h.writeError(
 			w,
 			r,
 			http.StatusInternalServerError,
 			err,
 			"err.finalize_login",
-			"failed to finalize login verification",
+			"failed to finalize credential login",
 		)
 		return
 	}
@@ -253,11 +194,9 @@ func expiresIn(expiresAt, now int64) int64 {
 	return expiresAt - now
 }
 
-// developmentValue is only used for bounded, validated email addresses and issued codes.
-func developmentValue(dev bool, value string) string {
-	if dev {
-		return value
-	}
-
-	return "******"
+type sessionResponse struct {
+	AccessToken           string `json:"access_token"`
+	RefreshToken          string `json:"refresh_token"`
+	ExpiresIn             int64  `json:"expires_in"`
+	RefreshTokenExpiresIn int64  `json:"refresh_token_expires_in"`
 }

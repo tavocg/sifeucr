@@ -3,7 +3,6 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,9 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tavocg/go-email/mailer"
+	email "github.com/tavocg/go-email"
 	"github.com/tavocg/go-i18n"
-	"github.com/tavocg/go-secrets/otp"
 	"sifeucr/auth"
 	"sifeucr/database"
 	"sifeucr/handlers"
@@ -25,25 +23,9 @@ import (
 	"sifeucr/internal/testdb"
 )
 
-type testMailer struct {
-	messages chan *mailer.Message
-	err      error
-}
-
-func (m testMailer) Send(ctx context.Context, message *mailer.Message) error {
-	select {
-	case m.messages <- message:
-		return m.err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 type harness struct {
 	handler http.Handler
 	auth    *auth.Authenticator
-	signer  *otp.Signer
-	mail    testMailer
 }
 
 func newHarness(t *testing.T, db database.Database, deliveryErr error) harness {
@@ -56,20 +38,18 @@ func newHarness(t *testing.T, db database.Database, deliveryErr error) harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := otp.NewSigner("independent-test-otp-secret")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mail := testMailer{make(chan *mailer.Message, 16), deliveryErr}
 	h, err := handlers.NewHandler(handlers.Options{
-		DB: db, Authenticator: a, Localizer: l, OTPSigner: signer,
-		Mailer: mail, MailFrom: "test@example.com",
+		DB: db, Authenticator: a, Localizer: l,
+		Credentials: email.CredentialsConfig{Address: "smtp.example.com:465"},
+		VerifyCredentials: func(ctx context.Context, cfg email.CredentialsConfig, user, password string) error {
+			return deliveryErr
+		},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return harness{h, a, signer, mail}
+	return harness{h, a}
 }
 
 func (h harness) request(method, path, body, token, peer string) *httptest.ResponseRecorder {
@@ -96,66 +76,23 @@ func requireStatus(t *testing.T, w *httptest.ResponseRecorder, want int) {
 	}
 }
 
-func (h harness) code(t *testing.T) string {
-	t.Helper()
-	select {
-	case message := <-h.mail.messages:
-		code := regexp.MustCompile(`\b[0-9]{6}\b`).FindString(message.PlainBody)
-		if code == "" {
-			t.Fatal("mail did not contain a six-digit code")
-		}
-		return code
-	default:
-		t.Fatal("expected a verification email")
-		return ""
-	}
-}
-
-func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
+func TestCredentialLoginAndBrowserSession(t *testing.T) {
 	testdb.Run(t, func(t *testing.T, db database.Database) {
 		h := newHarness(t, db, nil)
-		requireStatus(t, h.request("POST", "/auth/login", `{"email":"User+tag@Example.com"}`, "", "127.0.0.1:1"), 204)
-		code := h.code(t)
-		digest := h.signer.Sign("login", "user+tag@example.com", code)
-		rollback := errors.New("inspect without consuming")
-		err := db.WithTx(t.Context(), func(q database.Querier) error {
-			saved, err := q.ConsumeAccountLoginRequest(t.Context(), "user+tag@example.com", digest, time.Now().Unix())
-			if err != nil {
-				return err
-			}
-			if saved.OTPHash == code || !h.signer.Verify("login", saved.Email, code, saved.OTPHash) {
-				t.Error("database did not store the code as its context-bound digest")
-			}
-			return rollback
-		})
-		if !errors.Is(err, rollback) {
+		requireStatus(t, h.request("POST", "/auth/login", `{"email":"owner@example.com"}`, "", "127.0.0.1:1"), 400)
+		response := h.request("POST", "/auth/login", `{"email":"owner@example.com","password":"secret"}`, "", "127.0.0.1:1")
+		requireStatus(t, response, 200)
+		var tokens struct {
+			Access string `json:"access_token"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &tokens); err != nil {
 			t.Fatal(err)
 		}
-		body := `{"email":"user+tag@example.com","otp":"` + code + `"}`
-		start, results := make(chan struct{}), make(chan *httptest.ResponseRecorder, 2)
-		for range 2 {
-			go func() { <-start; results <- h.request("POST", "/auth/verify", body, "", "127.0.0.1:1") }()
+		if _, err := h.auth.Verify(t.Context(), tokens.Access); err != nil {
+			t.Fatal(err)
 		}
-		close(start)
-		statuses := map[int]int{}
-		for range 2 {
-			w := <-results
-			statuses[w.Code]++
-			if w.Code == 200 {
-				var tokens struct {
-					AccessToken string `json:"access_token"`
-				}
-				if err := json.Unmarshal(w.Body.Bytes(), &tokens); err != nil {
-					t.Error(err)
-					continue
-				}
-				if _, err := h.auth.Verify(t.Context(), tokens.AccessToken); err != nil {
-					t.Errorf("login returned an invalid session: %v", err)
-				}
-			}
-		}
-		if statuses[200] != 1 || statuses[401] != 1 {
-			t.Fatalf("concurrent verification statuses = %v", statuses)
+		for _, path := range []string{"/auth/verify", "/account/email/change", "/account/email/change/confirm"} {
+			requireStatus(t, h.request("POST", path, "{}", "", "127.0.0.1:1"), 404)
 		}
 		t.Run("native browser session", func(t *testing.T) {
 			autoResumeForm := regexp.MustCompile(`<form\b[^>]*\bdata-auto-resume(?:[\s=>])`)
@@ -174,24 +111,15 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 				h.handler.ServeHTTP(out, req)
 				return out
 			}
-			form := url.Values{"action": {"login"}, "email": {"browser@example.com"}}
+			form := url.Values{"action": {"login"}, "email": {"browser@example.com"}, "password": {"secret"}}
 			requireStatus(t, call("POST", "/login", form, "https://attacker.example"), 403)
 			requireStatus(t, call("POST", "/login", form, "null"), 403)
-			requireStatus(t, call("GET", "/home", nil, ""), 303)
+			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
 			login := call("GET", "/login", nil, "")
 			requireStatus(t, login, 200)
 			if login.Header().Get("Referrer-Policy") != "strict-origin" {
 				t.Fatal("referrer policy must preserve native form Origin on HTTP LAN hosts")
 			}
-			requireStatus(t, call("POST", "/login", form, "http://example.com"), 303)
-			form.Set("action", "verify")
-			form.Set("otp", "invalid")
-			invalid := call("POST", "/login", form, "")
-			requireStatus(t, invalid, 401)
-			if !strings.Contains(invalid.Body.String(), `class="warn" role="alert">Invalid login verification code.`) || !strings.Contains(invalid.Body.String(), `id="login-otp"`) {
-				t.Fatal("verification error was not visible beside the code input")
-			}
-			form.Set("otp", h.code(t))
 			signed := call("POST", "/login", form, "")
 			requireStatus(t, signed, 303)
 			cookies = signed.Result().Cookies()
@@ -205,10 +133,10 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 			}
 			redirected := call("GET", "/login", nil, "")
 			requireStatus(t, redirected, 303)
-			if redirected.Header().Get("Location") != "/home" || redirected.Header().Get("Cache-Control") != "no-store" {
+			if redirected.Header().Get("Location") != "/dashboard" || redirected.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("authenticated login did not redirect safely")
 			}
-			home := call("GET", "/home", nil, "")
+			home := call("GET", "/dashboard/account", nil, "")
 			requireStatus(t, home, 200)
 			if !strings.Contains(home.Body.String(), `class="tag info"`) || !strings.Contains(home.Body.String(), "Current") {
 				t.Fatal("home did not show current session")
@@ -243,7 +171,7 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 			staleCookies := append([]*http.Cookie(nil), cookies...)
 			resumed := call("POST", "/login", url.Values{"action": {"resume"}}, "")
 			requireStatus(t, resumed, 303)
-			if resumed.Header().Get("Location") != "/home" {
+			if resumed.Header().Get("Location") != "/dashboard" {
 				t.Fatal("expired access cookie did not resume the session")
 			}
 			cookies = resumed.Result().Cookies()
@@ -267,8 +195,9 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 			if len(failed.Result().Cookies()) != 0 || autoResumeForm.MatchString(failed.Body.String()) {
 				t.Fatal("stale renewal cleared cookies or restarted renewal")
 			}
-			requireStatus(t, call("GET", "/home", nil, ""), 200)
+			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 200)
 			var current *auth.Claims
+			var err error
 			for _, cookie := range cookies {
 				if strings.HasSuffix(cookie.Name, "_access") {
 					current, err = h.auth.Verify(t.Context(), cookie.Value)
@@ -289,7 +218,7 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			confirmation := call("GET", "/home", nil, "")
+			confirmation := call("GET", "/dashboard/account", nil, "")
 			requireStatus(t, confirmation, 200)
 			if !strings.Contains(confirmation.Body.String(), `<dialog id="revoke-`+otherClaims.SessionID+`"`) {
 				t.Fatal("missing session revocation modal")
@@ -307,10 +236,10 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 			if _, err := h.auth.Verify(t.Context(), other.Value); err == nil {
 				t.Fatal("other session still authenticates")
 			}
-			requireStatus(t, call("GET", "/home", nil, ""), 200)
+			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 200)
 			requireStatus(t, call("POST", "/login", url.Values{"action": {"logout"}}, ""), 303)
 			// Old cookies must stop authenticating after server-side revocation.
-			requireStatus(t, call("GET", "/home", nil, ""), 303)
+			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
 			requireStatus(t, call("GET", "/login", nil, ""), 200)
 			access, refresh, err := h.auth.Issue(t.Context(), &auth.Claims{Sub: current.Sub})
 			if err != nil {
@@ -337,7 +266,7 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 					t.Fatal("current cookies were not cleared")
 				}
 			}
-			requireStatus(t, call("GET", "/home", nil, ""), 303)
+			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
 			requireStatus(t, call("GET", "/login", nil, ""), 200)
 			// Dependency failures must remain errors, preserving existing credentials.
 			at, rt, err := h.auth.Issue(t.Context(), &auth.Claims{Sub: current.Sub})
@@ -362,100 +291,5 @@ func TestLoginOTPIsHashedAndConsumedOnce(t *testing.T) {
 
 		})
 
-	})
-}
-
-func TestOTPBudgetsFollowIdentityAcrossIPs(t *testing.T) {
-	testdb.Run(t, func(t *testing.T, db database.Database) {
-		h := newHarness(t, db, nil)
-		requireStatus(t, h.request("POST", "/auth/login", `{"email":"owner@example.com"}`, "", "127.0.0.1:1"), 204)
-		code := h.code(t)
-		requireStatus(t, h.request("POST", "/auth/login", `{"email":"OWNER@example.com"}`, "", "192.0.2.1:1"), 429)
-		wrong := "000000"
-		if wrong == code {
-			wrong = "111111"
-		}
-		for i := range 5 {
-			requireStatus(t, h.request("POST", "/auth/verify", `{"email":"owner@example.com","otp":"`+wrong+`"}`, "", "192.0.2."+strconv.Itoa(i+1)+":1"), 401)
-		}
-		requireStatus(t, h.request("POST", "/auth/verify", `{"email":"owner@example.com","otp":"`+code+`"}`, "", "192.0.2.99:1"), 429)
-		// Independent identities behind the same proxy retain their allowances.
-		for i := range 12 {
-			body := `{"email":"proxy` + strconv.Itoa(i) + `@example.com"}`
-			requireStatus(t, h.request("POST", "/auth/login", body, "", "127.0.0.1:1"), 204)
-		}
-	})
-}
-
-func TestLoginRejectsExpiredAndCrossContextDigests(t *testing.T) {
-	testdb.Run(t, func(t *testing.T, db database.Database) {
-		h := newHarness(t, db, nil)
-		for _, name := range []string{"expired", "wrong-purpose", "wrong-identity"} {
-			email, purpose, bound := name+"@example.com", "login", name+"@example.com"
-			expiry := time.Now().Add(time.Hour).Unix()
-			switch name {
-			case "expired":
-				expiry = time.Now().Unix() - 1
-			case "wrong-purpose":
-				purpose = "email_change"
-			case "wrong-identity":
-				bound = "someone-else@example.com"
-			}
-			if err := db.Querier().UpsertAccountLoginRequest(t.Context(), email, h.signer.Sign(purpose, bound, "123456"), expiry); err != nil {
-				t.Fatal(err)
-			}
-			requireStatus(t, h.request("POST", "/auth/verify", `{"email":"`+email+`","otp":"123456"}`, "", "127.0.0.1:1"), 401)
-		}
-	})
-}
-
-func TestDeliveryFailurePreservesChallengeAndCooldown(t *testing.T) {
-	testdb.Run(t, func(t *testing.T, db database.Database) {
-		h := newHarness(t, db, errors.New("provider may already have accepted the message"))
-		requireStatus(t, h.request("POST", "/auth/login", `{"email":"owner@example.com"}`, "", "127.0.0.1:1"), 502)
-		code := h.code(t)
-		requireStatus(t, h.request("POST", "/auth/login", `{"email":"owner@example.com"}`, "", "127.0.0.1:1"), 429)
-		requireStatus(t, h.request("POST", "/auth/verify", `{"email":"owner@example.com","otp":"`+code+`"}`, "", "127.0.0.1:1"), 200)
-	})
-}
-
-func TestEmailConflictRollsBackOTPAndPreservesProfile(t *testing.T) {
-	testdb.Run(t, func(t *testing.T, db database.Database) {
-		h := newHarness(t, db, nil)
-		q := db.Querier()
-		sub, err := q.EnsureAccountByEmail(t.Context(), "owner@example.com", time.Now().Unix())
-		if err != nil {
-			t.Fatal(err)
-		}
-		target, err := q.EnsureAccountByEmail(t.Context(), "taken@example.com", time.Now().Unix())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := q.AssignRoleToAccount(t.Context(), sub, database.RoleDefault); err != nil {
-			t.Fatal(err)
-		}
-		at, _, err := h.auth.Issue(t.Context(), &auth.Claims{Sub: strconv.FormatInt(sub, 10)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := q.SelectAccountBySub(t.Context(), sub); err != nil { // Warm the profile cache.
-			t.Fatal(err)
-		}
-		requireStatus(t, h.request("PATCH", "/account/email/change", `{"new_email":"taken@example.com"}`, at.Value, "127.0.0.1:1"), 204)
-		body := `{"otp":"` + h.code(t) + `"}`
-		requireStatus(t, h.request("PATCH", "/account/email/change/confirm", body, at.Value, "127.0.0.1:1"), 409)
-		profile, err := q.SelectAccountBySub(t.Context(), sub)
-		if err != nil || profile.Email != "owner@example.com" {
-			t.Fatalf("conflict changed profile: %v, %v", profile, err)
-		}
-		if err := q.UpdateAccountEmail(t.Context(), target, "released@example.com"); err != nil {
-			t.Fatal(err)
-		}
-		requireStatus(t, h.request("PATCH", "/account/email/change/confirm", body, at.Value, "127.0.0.1:1"), 204)
-		profile, err = q.SelectAccountBySub(t.Context(), sub)
-		if err != nil || profile.Email != "taken@example.com" {
-			t.Fatalf("successful change not visible: %v, %v", profile, err)
-		}
-		requireStatus(t, h.request("PATCH", "/account/email/change/confirm", body, at.Value, "127.0.0.1:1"), 401)
 	})
 }
