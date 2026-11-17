@@ -17,8 +17,8 @@ import (
 
 // semanticTag pins https://github.com/tavocg/semantic/releases.
 // Update this tag and the reviewed CSS digest, then run go generate ./templates.
-const semanticTag = "v2.2.2"
-const semanticSHA256 = "e82183610bfc7f1fa77f709a397fcbdf3153db6fc8915de28069bf28cb7d492d"
+const semanticTag = "v2.2.5"
+const semanticSHA256 = "92f88f98e2f002a1705f01f4f70be1c3f9be2bfd1db399b7c657f9a4b3ee62a4"
 const maxDownloadBytes = 1 << 20
 
 func main() {
