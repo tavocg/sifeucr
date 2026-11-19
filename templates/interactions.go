@@ -14,7 +14,7 @@ var NativeBusyHash = func() string {
 	return "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
 }()
 
-// Shared by native dashboard forms and automatic restoration. Keep the lock
+// Shared by native personal-area forms and automatic restoration. Keep the lock
 // until response cookies are applied; never retry an ambiguous mutation.
 const Submit = `(async () => { if (!$pending && el.reportValidity()) {
  $pending = el.id; $error = ''; $notice = ''; $errorForm = el.id;

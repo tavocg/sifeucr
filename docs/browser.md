@@ -11,12 +11,21 @@ required STARTTLS; otherwise implicit TLS is used. Certificates are verified.
 The application permits five attempts per ten minutes per normalized email.
 Apply additional per-client-IP throttling at the reverse proxy.
 
-GET /dashboard and GET /dashboard/account require a valid browser session. The Semantic
-aside links Overview and Account; Account shows the email, account creation date,
-and paginated active sessions with device details and revocation controls.
+GET /my requires a valid browser session and renders Home, Account,
+account details and the first sessions page in one document. The Semantic aside
+links #home and #account. Pinned Datastar reacts to hash changes to switch
+panels, update the selected link and page title, and close the mobile sidebar.
+Switching panels does not fetch a new document. Direct links, reloads and browser
+Back/Forward restore the selected panel. Without JavaScript, both panels remain
+visible and the links act as native section anchors.
+
+GET /my/account is retained as a no-store redirect to /my#account,
+preserving a supplied sessions cursor. Session pagination, refresh and revocation
+continue to use the existing authenticated handlers and partial session updates.
+Pagination's full-page fallback returns to #account.
 The avatar is an inline SVG using the uppercase email initial and a stable color
 derived from that letter.
-Overview uses the MIT-licensed Heroicons squares-2x2 icon; see licenses/heroicons.txt.
+Home uses the MIT-licensed Heroicons home icon; see licenses/heroicons.txt.
 
 Account session refresh and revocation use pinned embedded Datastar with SRI and
 CSP nonce mode. Login uses native forms and the CSP-hashed busy handler.
@@ -33,9 +42,9 @@ Email changes and OTP login are unavailable. Deploy with old writers stopped:
 migration 20261116000 removes their challenge tables and email-change permission.
 Existing sessions and account addresses are preserved.
 
-The shared header displays the application name and links Home to the public root
-and Dashboard to /dashboard. Dashboard is marked current throughout its pages, including
-Account. The shared footer links /about,
+The shared header links the application name to the public root. Its navigation
+is hidden inside the personal area; public pages show a single Log in link to /login.
+The shared footer links /about,
 /terms, the API documentation, the generated /s/LICENSE.txt, and the source
 repository. Information pages are public, localized and use no-store.
 All application links include the configured root prefix.

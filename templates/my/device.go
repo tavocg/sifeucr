@@ -1,4 +1,4 @@
-package home
+package my
 
 func (s Session) Label(tr func(string) string) string {
 	if s.Browser != "" && s.OS != "" {

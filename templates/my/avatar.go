@@ -1,4 +1,4 @@
-package home
+package my
 
 import (
 	"fmt"
@@ -14,11 +14,4 @@ func avatarInitial(email string) string {
 func avatarColor(initial string) string {
 	letter, _ := utf8.DecodeRuneInString(initial)
 	return fmt.Sprintf("hsl(%d 55%% 32%%)", uint32(letter)*137%360)
-}
-
-func current(active bool) string {
-	if active {
-		return "page"
-	}
-	return "false"
 }

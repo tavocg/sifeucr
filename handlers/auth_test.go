@@ -114,7 +114,7 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			form := url.Values{"action": {"login"}, "email": {"browser@example.com"}, "password": {"secret"}}
 			requireStatus(t, call("POST", "/login", form, "https://attacker.example"), 403)
 			requireStatus(t, call("POST", "/login", form, "null"), 403)
-			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
+			requireStatus(t, call("GET", "/my", nil, ""), 303)
 			login := call("GET", "/login", nil, "")
 			requireStatus(t, login, 200)
 			if login.Header().Get("Referrer-Policy") != "strict-origin" {
@@ -133,12 +133,12 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			}
 			redirected := call("GET", "/login", nil, "")
 			requireStatus(t, redirected, 303)
-			if redirected.Header().Get("Location") != "/dashboard" || redirected.Header().Get("Cache-Control") != "no-store" {
+			if redirected.Header().Get("Location") != "/my" || redirected.Header().Get("Cache-Control") != "no-store" {
 				t.Fatal("authenticated login did not redirect safely")
 			}
-			home := call("GET", "/dashboard/account", nil, "")
-			requireStatus(t, home, 200)
-			if !strings.Contains(home.Body.String(), `class="tag info"`) || !strings.Contains(home.Body.String(), "Current") {
+			myPage := call("GET", "/my", nil, "")
+			requireStatus(t, myPage, 200)
+			if !strings.Contains(myPage.Body.String(), `class="tag info"`) || !strings.Contains(myPage.Body.String(), "Current") {
 				t.Fatal("home did not show current session")
 			}
 			requireStatus(t, call("GET", "/account/sessions", nil, ""), 401)
@@ -171,7 +171,7 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			staleCookies := append([]*http.Cookie(nil), cookies...)
 			resumed := call("POST", "/login", url.Values{"action": {"resume"}}, "")
 			requireStatus(t, resumed, 303)
-			if resumed.Header().Get("Location") != "/dashboard" {
+			if resumed.Header().Get("Location") != "/my" {
 				t.Fatal("expired access cookie did not resume the session")
 			}
 			cookies = resumed.Result().Cookies()
@@ -195,7 +195,7 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			if len(failed.Result().Cookies()) != 0 || autoResumeForm.MatchString(failed.Body.String()) {
 				t.Fatal("stale renewal cleared cookies or restarted renewal")
 			}
-			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 200)
+			requireStatus(t, call("GET", "/my", nil, ""), 200)
 			var current *auth.Claims
 			var err error
 			for _, cookie := range cookies {
@@ -218,7 +218,7 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			confirmation := call("GET", "/dashboard/account", nil, "")
+			confirmation := call("GET", "/my", nil, "")
 			requireStatus(t, confirmation, 200)
 			if !strings.Contains(confirmation.Body.String(), `<dialog id="revoke-`+otherClaims.SessionID+`"`) {
 				t.Fatal("missing session revocation modal")
@@ -236,10 +236,10 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 			if _, err := h.auth.Verify(t.Context(), other.Value); err == nil {
 				t.Fatal("other session still authenticates")
 			}
-			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 200)
+			requireStatus(t, call("GET", "/my", nil, ""), 200)
 			requireStatus(t, call("POST", "/login", url.Values{"action": {"logout"}}, ""), 303)
 			// Old cookies must stop authenticating after server-side revocation.
-			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
+			requireStatus(t, call("GET", "/my", nil, ""), 303)
 			requireStatus(t, call("GET", "/login", nil, ""), 200)
 			access, refresh, err := h.auth.Issue(t.Context(), &auth.Claims{Sub: current.Sub})
 			if err != nil {
@@ -266,7 +266,7 @@ func TestCredentialLoginAndBrowserSession(t *testing.T) {
 					t.Fatal("current cookies were not cleared")
 				}
 			}
-			requireStatus(t, call("GET", "/dashboard/account", nil, ""), 303)
+			requireStatus(t, call("GET", "/my", nil, ""), 303)
 			requireStatus(t, call("GET", "/login", nil, ""), 200)
 			// Dependency failures must remain errors, preserving existing credentials.
 			at, rt, err := h.auth.Issue(t.Context(), &auth.Claims{Sub: current.Sub})

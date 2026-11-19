@@ -12,9 +12,10 @@ import (
 	"sifeucr/internal/browser"
 	"sifeucr/internal/httpx"
 	"sifeucr/middleware"
+	"sifeucr/routes"
 	"sifeucr/templates/base"
-	homepage "sifeucr/templates/home"
 	"sifeucr/templates/meta"
+	mypage "sifeucr/templates/my"
 )
 
 func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int, title string, content templ.Component, reactive bool, aside ...templ.Component) {
@@ -44,20 +45,16 @@ func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Add("Vary", "Accept-Language")
 	w.WriteHeader(status)
-	if err := base.Page(base.PageParams{Tr: func(key string) string { return h.localize(r, key) }, Nonce: nonce, Links: h.links, Head: base.HeadParams{Title: meta.AppTitle, Subtitle: title}, Body: base.BodyParams{Content: content, Aside: navigation, Dashboard: navigation != nil}}).Render(r.Context(), w); err != nil {
+	if err := base.Page(base.PageParams{Tr: func(key string) string { return h.localize(r, key) }, Nonce: nonce, Links: h.links, Head: base.HeadParams{Title: meta.AppTitle, Subtitle: title}, Body: base.BodyParams{Content: content, Aside: navigation, MyArea: navigation != nil}}).Render(r.Context(), w); err != nil {
 		h.logger.Error("failed to render browser page", "error", err)
 	}
 }
 
-func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies browser.Cookies, status int) {
-	login, home := h.links.Mount("/login"), h.links.Mount("/dashboard")
-	accountPage := h.links.Mount("/dashboard/account")
-	viewAccount := strings.HasSuffix(r.URL.Path, "/account")
-	if viewAccount {
-		home = accountPage
-	}
+func (h *Handler) browserMyPage(w http.ResponseWriter, r *http.Request, cookies browser.Cookies, status int) {
+	loginURL, _ := h.URL(routes.LoginPage)
+	myURL, _ := h.URL(routes.MyPage)
 	fragment := r.URL.Query().Get("fragment") == "sessions"
-	view := homepage.View{Account: viewAccount}
+	view := mypage.View{}
 	// Verify once, then reuse the request identity for profile and session reads.
 	protected := middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := middleware.AuthenticatedIdentity(r.Context())
@@ -69,16 +66,12 @@ func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies br
 			view.Email = account.Email
 			view.Created = account.CreatedAt
 		}
-		if viewAccount || fragment {
-			h.ListSessions(w, r)
-		} else {
-			httpx.WriteJSON(w, http.StatusOK, accountSessionsResponse{})
-		}
+		h.ListSessions(w, r)
 	}))
 	reply := browser.Call(r, protected, nil, cookies.Read(r, "access"))
 	if reply.Status == http.StatusUnauthorized {
 		w.Header().Set("Cache-Control", "no-store")
-		browserRedirect(w, r, login)
+		browserRedirect(w, r, loginURL)
 		return
 	}
 	if reply.Status != http.StatusOK {
@@ -97,30 +90,26 @@ func (h *Handler) browserHome(w http.ResponseWriter, r *http.Request, cookies br
 		)
 		return
 	}
-	rows := make([]homepage.Session, 0, len(sessions.Sessions))
+	rows := make([]mypage.Session, 0, len(sessions.Sessions))
 	for _, session := range sessions.Sessions {
 		browserName, osName := deviceNames(session.UserAgent)
-		rows = append(rows, homepage.Session{ID: session.ID, Device: session.UserAgent, Browser: browserName, OS: osName, Created: session.CreatedAt, Used: session.LastUsedAt, Expires: session.ExpiresAt, Current: session.Current})
+		rows = append(rows, mypage.Session{ID: session.ID, Device: session.UserAgent, Browser: browserName, OS: osName, Created: session.CreatedAt, Used: session.LastUsedAt, Expires: session.ExpiresAt, Current: session.Current})
 	}
-	next := ""
+	nextURL := ""
 	if sessions.NextCursor != "" {
-		next = home + "?cursor=" + url.QueryEscape(sessions.NextCursor)
+		nextURL = myURL + "?cursor=" + url.QueryEscape(sessions.NextCursor)
 	}
 	tr := func(key string) string { return h.localize(r, key) }
 	if fragment {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Add("Vary", "Accept-Language")
-		if err := homepage.Sessions(login, home, next, rows, tr, h.language(r)).Render(r.Context(), w); err != nil {
+		if err := mypage.Sessions(loginURL, myURL, nextURL, rows, tr, h.language(r)).Render(r.Context(), w); err != nil {
 			h.logger.Error("failed to render browser sessions", "error", err)
 		}
 		return
 	}
-	title := tr("web.overview")
-	if viewAccount {
-		title = tr("web.account")
-	}
-	h.browserPage(w, r, status, title, homepage.Home(login, home, next, rows, h.language(r), view, tr), true, homepage.Aside(h.links.Mount("/dashboard"), accountPage, view, tr))
+	h.browserPage(w, r, status, tr("web.home"), mypage.Page(loginURL, myURL, nextURL, rows, h.language(r), view, tr), true, mypage.Aside(view, tr))
 }
 
 // Only the browser adapter negotiates JSON; the public API remains Bearer-only.

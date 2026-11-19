@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/mssola/useragent"
@@ -19,13 +20,13 @@ import (
 // the browser surface. API handlers, JSON contracts and Bearer authentication are
 // not modified.
 func (h *Handler) registerBrowserRoutes() {
-	const loginPath, homePath = "/login", "/dashboard"
+	const loginPath = "/login"
 	cookies := browser.Cookies{Path: h.links.Mount("/"), Secure: !h.dev}
 	if !strings.HasSuffix(cookies.Path, "/") {
 		cookies.Path += "/"
 	}
-	login := h.links.Mount(loginPath)
-	home := h.links.Mount(homePath)
+	loginURL := h.links.Mount(loginPath)
+	myURL, _ := h.URL(routes.MyPage)
 	page := h.browserPage
 	showLogin := func(w http.ResponseWriter, r *http.Request, status int, email, message string) {
 		tr := func(key string) string { return h.localize(r, key) }
@@ -34,7 +35,7 @@ func (h *Handler) registerBrowserRoutes() {
 			return
 		}
 		resume := status == http.StatusOK && r.Method == http.MethodGet && cookies.Read(r, "refresh") != "" && r.URL.Query().Get("resume") != "0" && !prefetch(r)
-		page(w, r, status, tr("web.login"), loginpage.Login(login, email, message, resume, tr), resume)
+		page(w, r, status, tr("web.login"), loginpage.Login(loginURL, email, message, resume, tr), resume)
 	}
 
 	// GET never consumes a rotating token; the browser coordinates an automatic
@@ -49,7 +50,7 @@ func (h *Handler) registerBrowserRoutes() {
 		}
 		if authenticated {
 			w.Header().Set("Cache-Control", "no-store")
-			browserRedirect(w, r, home)
+			browserRedirect(w, r, myURL)
 			return
 		}
 		showLogin(w, r, http.StatusOK, "", "")
@@ -59,7 +60,7 @@ func (h *Handler) registerBrowserRoutes() {
 	// compared headers, because tunnels and proxies can rewrite Host.
 	csrf := http.NewCrossOriginProtection()
 	if h.dev {
-		csrf.AddInsecureBypassPattern("POST " + login)
+		csrf.AddInsecureBypassPattern("POST " + loginURL)
 	}
 	for _, origin := range h.csrfOrigins {
 		if err := csrf.AddTrustedOrigin(origin); err != nil {
@@ -97,11 +98,11 @@ func (h *Handler) registerBrowserRoutes() {
 		if action == "resume" {
 			authenticated, status := h.resumeSession(w, r, cookies)
 			if authenticated {
-				browserRedirect(w, r, home)
+				browserRedirect(w, r, myURL)
 				return
 			}
 			if browserJSON(r) && status < 400 {
-				browserRedirect(w, r, login+"?resume=0")
+				browserRedirect(w, r, loginURL+"?resume=0")
 				return
 			}
 			message := ""
@@ -123,7 +124,7 @@ func (h *Handler) registerBrowserRoutes() {
 			}))
 			reply := browser.Call(request, revoke, nil, cookies.Read(r, "access"))
 			if reply.Status == 401 {
-				browserRedirect(w, r, login)
+				browserRedirect(w, r, loginURL)
 				return
 			}
 			if reply.Status >= 400 {
@@ -136,11 +137,11 @@ func (h *Handler) registerBrowserRoutes() {
 			}
 			if current {
 				cookies.Clear(w)
-				browserRedirect(w, r, login)
+				browserRedirect(w, r, loginURL)
 			} else if browserJSON(r) {
 				httpx.WriteJSON(w, 200, map[string]any{"refreshSessions": true, "error": ""})
 			} else {
-				browserRedirect(w, r, h.links.Mount("/dashboard/account"))
+				browserRedirect(w, r, myURL+"#account")
 			}
 			return
 		}
@@ -179,7 +180,7 @@ func (h *Handler) registerBrowserRoutes() {
 				}
 			}
 			cookies.Clear(w)
-			browserRedirect(w, r, login)
+			browserRedirect(w, r, loginURL)
 			return
 		}
 		var reply *browser.Reply
@@ -207,14 +208,21 @@ func (h *Handler) registerBrowserRoutes() {
 		}
 		cookies.Save(w, tokens)
 		w.Header().Set("Cache-Control", "no-store")
-		browserRedirect(w, r, home)
+		browserRedirect(w, r, myURL)
 	})))
-	for _, id := range []routes.ID{routes.DashboardPage, routes.AccountPage} {
-		h.AddRoute(id, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Vary", "Accept")
-			h.browserHome(w, r, cookies, http.StatusOK)
-		}))
-	}
+	h.AddRoute(routes.MyPage, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Accept")
+		h.browserMyPage(w, r, cookies, http.StatusOK)
+	}))
+	// Preserve existing account bookmarks while using one personal-area document.
+	h.AddRoute(routes.MyAccountPage, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := myURL
+		if cursor := r.URL.Query().Get("cursor"); cursor != "" {
+			target += "?cursor=" + url.QueryEscape(cursor)
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, target+"#account", http.StatusSeeOther)
+	}))
 }
 
 // browserAuthenticated distinguishes invalid credentials from dependency failures.

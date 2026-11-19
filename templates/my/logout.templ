@@ -1,8 +1,8 @@
-package home
+package my
 
 import "sifeucr/templates"
 
-templ confirmLogout(id, action, operation, sessionID, device string, current bool, tr func(string) string) {
+templ confirmLogout(id, loginURL, operation, sessionID, device string, current bool, tr func(string) string) {
 	<dialog id={ id } aria-labelledby={ id + "-title" } aria-describedby={ id + "-description" }>
 		<hgroup>
 			<header>
@@ -23,7 +23,7 @@ templ confirmLogout(id, action, operation, sessionID, device string, current boo
 			</p>
 		</hgroup>
 		@templates.FormError(id+"-form")
-		<form id={ id + "-form" } hidden method="post" action={ action } data-on:submit={ templates.Submit }>
+		<form id={ id + "-form" } hidden method="post" action={ loginURL } data-on:submit={ templates.Submit }>
 			<input type="hidden" name="action" value={ operation }/>
 			<input type="hidden" name="session_id" value={ sessionID }/>
 		</form>

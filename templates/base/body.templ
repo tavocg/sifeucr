@@ -4,9 +4,9 @@ import "sifeucr/templates/meta"
 import "sifeucr/routes"
 
 type BodyParams struct {
-	Content   templ.Component
-	Aside     templ.Component
-	Dashboard bool
+	Content templ.Component
+	Aside   templ.Component
+	MyArea  bool
 }
 
 templ body(params BodyParams, links routes.Links, tr func(string) string) {
@@ -19,20 +19,15 @@ templ body(params BodyParams, links routes.Links, tr func(string) string) {
 				if params.Aside != nil {
 					<button type="button" class="plain" popovertarget="site-aside" aria-label={ tr("web.navigation") }>☰</button>
 				}
-				<strong>{ meta.AppTitle }</strong>
+				<a href={ links.URL(routes.Root) }><strong>{ meta.AppTitle }</strong></a>
 			</div>
-			<nav aria-label={ tr("web.navigation") }>
-				<ul>
-					<li><a href={ links.URL(routes.Root) }>{ tr("web.home") }</a></li>
-					<li>
-						if params.Dashboard {
-							<a href={ links.URL(routes.DashboardPage) } aria-current="page">{ tr("web.dashboard") }</a>
-						} else {
-							<a href={ links.URL(routes.DashboardPage) }>{ tr("web.dashboard") }</a>
-						}
-					</li>
-				</ul>
-			</nav>
+			if !params.MyArea {
+				<nav aria-label={ tr("web.navigation") }>
+					<ul>
+						<li><a href={ links.URL(routes.LoginPage) }>{ tr("web.login") }</a></li>
+					</ul>
+				</nav>
+			}
 		</header>
 		<main><div class="content">@params.Content</div></main>
 		@footer(links, tr)

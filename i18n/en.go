@@ -1,8 +1,7 @@
 package i18n
 
 var en = map[string]string{
-	"web.overview":            "Overview",
-	"web.dashboard":           "Dashboard",
+
 	"web.platform":            "Platform",
 	"web.project":             "Project",
 	"web.about":               "About",
@@ -77,7 +76,7 @@ var en = map[string]string{
 	"web.update_error":   "Unable to update. Please try again or reload the page.",
 	"web.confirm_logout": "Sign out",
 	"web.reload":         "Refresh sessions",
-	"web.login":          "Sign in",
+	"web.login":          "Log in",
 	"web.home":           "Home",
 	"web.email":          "Email",
 

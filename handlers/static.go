@@ -31,7 +31,7 @@ func (h *Handler) registerStaticRoutes() {
 }
 
 // Only the checksum-addressed public module is immutable. Error responses and
-// application HTML (especially login/dashboard) must not inherit this cache policy.
+// application HTML (especially login/my) must not inherit this cache policy.
 type immutableAssetWriter struct{ http.ResponseWriter }
 
 func (w immutableAssetWriter) WriteHeader(status int) {

@@ -93,7 +93,7 @@ and the weekly dependency review.
   from the release tag pinned in `templates/semantic.go` and writes its minified CSS to
   `handlers/static/css/semantic.<sha256>.css` with the upstream licenses. It also
   generates `templates.SemanticStylesheet()`, rendered inline in the shared page
-  head once per document through templ's OnceHandle. Dashboard fragment updates
+  head once per document through templ's OnceHandle. Personal-area fragment updates
   preserve that head; each new HTML document includes the CSS again. The static CSS and
   `templates.SemanticStylesheetURL(links)` remain available to other consumers.
   It verifies the CSS against `semanticSHA256` before writing files and

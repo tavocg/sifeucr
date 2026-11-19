@@ -17,8 +17,8 @@ const (
 	Root ID = iota
 	Login
 	LoginPage
-	DashboardPage
-	AccountPage
+	MyPage
+	MyAccountPage
 	AboutPage
 	TermsPage
 	License
@@ -41,8 +41,8 @@ var definitions = [count]Definition{
 	Root:          {"GET", "/"},
 	Login:         {"POST", "/auth/login"},
 	LoginPage:     {"GET", "/login"},
-	DashboardPage: {"GET", "/dashboard"},
-	AccountPage:   {"GET", "/dashboard/account"},
+	MyPage:        {"GET", "/my"},
+	MyAccountPage: {"GET", "/my/account"},
 	AboutPage:     {"GET", "/about"},
 	TermsPage:     {"GET", "/terms"},
 	License:       {"GET", "/s/LICENSE.txt"},

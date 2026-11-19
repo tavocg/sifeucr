@@ -80,7 +80,7 @@ func TestRoutesUseRootPrefix(t *testing.T) {
 	}{
 		{name: "browser login", method: "GET", path: "/api/login", wantStatus: 200, wantBody: `action="/api/login"`},
 		{name: "pinned Datastar", method: "GET", path: "/api/s/" + templates.DatastarScriptPath, wantStatus: 200},
-		{name: "protected browser home", method: "GET", path: "/api/dashboard", wantStatus: 303, wantLocation: "/api/login"},
+		{name: "protected personal area", method: "GET", path: "/api/my", wantStatus: 303, wantLocation: "/api/login"},
 		{
 			name:       "root JSON",
 			method:     http.MethodGet,

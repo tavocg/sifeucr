@@ -1,0 +1,73 @@
+package my
+
+import "encoding/json"
+import "sifeucr/templates/meta"
+
+type Session struct {
+	ID                     string
+	Device                 string
+	Browser                string
+	OS                     string
+	Created, Used, Expires int64
+	Current                bool
+}
+
+type View struct {
+	Email   string
+	Created int64
+}
+
+templ Aside(view View, tr func(string) string) {
+	<div style="display:flex;flex-direction:column;min-height:100%" data-signals="{account:false}" data-init="$account = location.hash === '#account'" data-on:hashchange__window="$account = location.hash === '#account'">
+		<nav aria-label={ tr("web.navigation") }>
+			<ul>
+				<li>
+					<a href="#home" aria-current="page" data-attr:aria-current="$account ? 'false' : 'page'" data-on:click="const aside = el.closest('aside'); if (aside?.matches(':popover-open')) aside.hidePopover()" style="display:flex;align-items:center;gap:.75rem">
+						<svg width="24" height="24" focusable="false" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+							<path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"></path>
+						</svg>
+						{ tr("web.home") }
+					</a>
+				</li>
+			</ul>
+		</nav>
+		<nav style="margin-top:auto" aria-label={ tr("web.account") }>
+			<ul style="grid-template-columns:minmax(0,1fr)">
+				<li style="min-width:0">
+					<a href="#account" data-attr:aria-current="$account ? 'page' : 'false'" data-on:click="const aside = el.closest('aside'); if (aside?.matches(':popover-open')) aside.hidePopover()" style="display:flex;align-items:center;gap:.75rem;min-width:0">
+						{{ initial := avatarInitial(view.Email) }}
+						<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" focusable="false" style="flex-shrink:0">
+							<circle cx="20" cy="20" r="20" fill={ avatarColor(initial) }></circle>
+							<text x="20" y="21" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="20" fill="white">{ initial }</text>
+						</svg>
+						<span style="flex:1;min-width:0;overflow:hidden">
+							<strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={ tr("web.account") }>{ tr("web.account") }</strong>
+							<small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={ view.Email }>{ view.Email }</small>
+						</span>
+					</a>
+				</li>
+			</ul>
+		</nav>
+	</div>
+}
+
+templ Page(loginURL, myURL, nextURL string, sessions []Session, language string, view View, tr func(string) string) {
+	{{ signals, _ := json.Marshal(map[string]any{"error": "", "errorForm": "", "notice": "", "pending": "", "refreshSessions": false, "redirect": "", "failure": tr("web.update_error"), "homeTitle": tr("web.home") + " | " + meta.AppTitle, "accountTitle": tr("web.account") + " | " + meta.AppTitle}) }}
+	<div data-signals={ string(signals) } data-on:datastar-fetch="if (evt.detail.type === 'error') $error = $failure" data-effect="document.title = $account ? $accountTitle : $homeTitle; if ($redirect && new URL($redirect, location.href).origin === location.origin) location.assign($redirect)">
+		<blockquote class="warn" role="alert" hidden data-attr:hidden="!$error || !!$errorForm" data-text="$error"></blockquote>
+		<section id="home" aria-labelledby="home-title" data-attr:hidden="$account">
+			<hgroup><h1 id="home-title">{ tr("web.welcome") }</h1><p>{ tr("web.home_help") }</p></hgroup>
+			<section class="card"><h2>{ tr("web.institutional_space") }</h2><p>{ tr("web.institutional_help") }</p></section>
+		</section>
+		<section id="account" aria-labelledby="account-title" data-attr:hidden="!$account">
+			<h1 id="account-title">{ tr("web.account") }</h1>
+			<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:1rem;align-items:start">
+				<section class="card" style="min-width:0;overflow-wrap:anywhere">
+					<h3>{ tr("web.details") }</h3>
+					<dl><dt>{ tr("web.email") }</dt><dd>{ view.Email }</dd><dt>{ tr("web.created") }</dt><dd>@timestamp(language, view.Created, false)</dd></dl>
+				</section>
+				@Sessions(loginURL, myURL, nextURL, sessions, tr, language)
+			</div>
+		</section>
+	</div>
+}
