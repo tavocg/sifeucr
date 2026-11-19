@@ -30,6 +30,15 @@ const (
 	RevokeSessions
 	RevokeSession
 
+	Budgets
+	CreateBudget
+	PurchaseProcesses
+	CreatePurchaseProcess
+
+	Suppliers
+	CreateSupplier
+	UpdateSupplier
+
 	Static
 	APIDocs
 	count
@@ -54,8 +63,16 @@ var definitions = [count]Definition{
 	RevokeSessions: {"DELETE", "/account/sessions"},
 	RevokeSession:  {"DELETE", "/account/sessions/{id}"},
 
-	Static:  {"GET", "/s/"},
-	APIDocs: {"GET", "/s/api/{$}"},
+	Budgets:               {"GET", "/budgets"},
+	CreateBudget:          {"POST", "/budgets"},
+	PurchaseProcesses:     {"GET", "/purchase-processes"},
+	CreatePurchaseProcess: {"POST", "/purchase-processes"},
+
+	Suppliers:      {"GET", "/suppliers"},
+	CreateSupplier: {"POST", "/suppliers"},
+	UpdateSupplier: {"PUT", "/suppliers/{id}"},
+	Static:         {"GET", "/s/"},
+	APIDocs:        {"GET", "/s/api/{$}"},
 }
 
 func (id ID) Definition() (Definition, error) {

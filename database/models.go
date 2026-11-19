@@ -1,7 +1,9 @@
 package database
 
 const (
-	RoleDefault = "role.default"
+	RoleDefault     = "role.default"
+	RoleAdmin       = "role.admin"
+	PermissionAdmin = "perm.admin"
 )
 
 type Account struct {

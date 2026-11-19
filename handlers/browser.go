@@ -94,6 +94,14 @@ func (h *Handler) registerBrowserRoutes() {
 		}
 		email := r.PostForm.Get("email")
 		action := r.PostForm.Get("action")
+		if action == "create_supplier" || action == "update_supplier" {
+			h.browserSaveSupplier(w, r, cookies)
+			return
+		}
+		if action == "create_budget" || action == "create_process" {
+			h.browserCreatePanelRecord(w, r, cookies, action)
+			return
+		}
 
 		if action == "resume" {
 			authenticated, status := h.resumeSession(w, r, cookies)

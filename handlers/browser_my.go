@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"sifeucr/database"
 	"sifeucr/internal/browser"
 	"sifeucr/internal/httpx"
 	"sifeucr/middleware"
@@ -53,6 +54,66 @@ func (h *Handler) browserPage(w http.ResponseWriter, r *http.Request, status int
 func (h *Handler) browserMyPage(w http.ResponseWriter, r *http.Request, cookies browser.Cookies, status int) {
 	loginURL, _ := h.URL(routes.LoginPage)
 	myURL, _ := h.URL(routes.MyPage)
+	if r.URL.Query().Get("fragment") == "panel" {
+		next := h.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+			view := mypage.View{Admin: true}
+			if err := h.loadPanel(r, &view); err != nil {
+				h.writeError(
+					w,
+					r,
+					http.StatusInternalServerError,
+					err,
+					"err.panel",
+					"failed to load panel fragment",
+				)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Add("Vary", "Accept-Language")
+			tr := func(key string) string { return h.localize(r, key) }
+			if err := mypage.Panel(loginURL, myURL, view, h.language(r), tr).Render(r.Context(), w); err != nil {
+				h.logger.Error("failed to render panel fragment", "error", err)
+			}
+		})
+		browserForward(w, browser.Call(r, next, nil, cookies.Read(r, "access")))
+		return
+	}
+	if r.URL.Query().Get("fragment") == "suppliers" {
+		next := middleware.AuthenticateBearer(h.logger, h.localize, h.authenticator, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity, _ := middleware.AuthenticatedIdentity(r.Context())
+			q := h.db.Querier()
+			var view mypage.View
+			var err error
+			view.Admin, err = q.AccountHasPermission(r.Context(), identity.Sub, database.PermissionAdmin)
+			if err == nil && view.Admin {
+				view.Budgets, err = q.ListBudgets(r.Context())
+			}
+			if err == nil {
+				view.Suppliers, err = q.ListSuppliers(r.Context())
+			}
+			if err != nil {
+				h.writeError(
+					w,
+					r,
+					http.StatusInternalServerError,
+					err,
+					"err.suppliers",
+					"failed to load suppliers fragment",
+				)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Add("Vary", "Accept-Language")
+			tr := func(key string) string { return h.localize(r, key) }
+			if err := mypage.Suppliers(loginURL, myURL, view, tr).Render(r.Context(), w); err != nil {
+				h.logger.Error("failed to render suppliers fragment", "error", err)
+			}
+		}))
+		browserForward(w, browser.Call(r, next, nil, cookies.Read(r, "access")))
+		return
+	}
 	fragment := r.URL.Query().Get("fragment") == "sessions"
 	view := mypage.View{}
 	// Verify once, then reuse the request identity for profile and session reads.
@@ -65,6 +126,26 @@ func (h *Handler) browserMyPage(w http.ResponseWriter, r *http.Request, cookies 
 			}
 			view.Email = account.Email
 			view.Created = account.CreatedAt
+			q := h.db.Querier()
+			var err error
+			view.Admin, err = q.AccountHasPermission(r.Context(), identity.Sub, database.PermissionAdmin)
+			if err == nil && view.Admin {
+				err = h.loadPanel(r, &view)
+			}
+			if err == nil {
+				view.Suppliers, err = q.ListSuppliers(r.Context())
+			}
+			if err != nil {
+				h.writeError(
+					w,
+					r,
+					http.StatusInternalServerError,
+					err,
+					"err.panel",
+					"failed to load administration panel",
+				)
+				return
+			}
 		}
 		h.ListSessions(w, r)
 	}))
@@ -131,4 +212,15 @@ func browserForward(w http.ResponseWriter, reply *browser.Reply) {
 	}
 	w.WriteHeader(reply.Status)
 	_, _ = w.Write(reply.Body.Bytes())
+}
+
+func (h *Handler) loadPanel(r *http.Request, view *mypage.View) error {
+	q := h.db.Querier()
+	var err error
+	view.Budgets, err = q.ListBudgets(r.Context())
+	if err != nil {
+		return err
+	}
+	view.Processes, err = q.ListProcesses(r.Context())
+	return err
 }

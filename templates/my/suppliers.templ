@@ -1,0 +1,101 @@
+package my
+
+import "strconv"
+import "sifeucr/templates"
+
+// Populate one shared dialog from the selected row. Values stay in the DOM as text.
+const prepareSupplierDialog = `const trigger = evt.target.closest('a[aria-controls="supplier-dialog"], button[commandfor="supplier-dialog"][command="show-modal"]');
+if (trigger) {
+ const dialog = document.getElementById('supplier-dialog');
+ const fields = Object.fromEntries(Array.from(dialog.querySelectorAll('[name]'), field => [field.name, field]));
+ $error = ''; $errorForm = '';
+ $editingSupplier = trigger.hasAttribute('data-id');
+ fields.action.value = $editingSupplier ? 'update_supplier' : 'create_supplier';
+ fields.supplier_id.value = trigger.dataset.id || '';
+ if ($editingSupplier) fields.budget_id.value = trigger.dataset.budget;
+ else fields.budget_id.selectedIndex = 0;
+ for (const name of ['identity_number','name','description','email','phone','iban']) {
+  fields[name].value = $editingSupplier ? trigger.closest('tr').querySelector('[data-field="'+name+'"]').textContent : '';
+ }
+ if ($editingSupplier) { evt.preventDefault(); dialog.showModal(); }
+}`
+
+templ Suppliers(loginURL, myURL string, view View, tr func(string) string) {
+	<section
+		id="suppliers"
+		if view.Admin {
+			data-signals="{editingSupplier:false}"
+			data-on:click={ prepareSupplierDialog }
+		}
+		data-attr:hidden="!$suppliers"
+		data-busy="suppliers-refresh"
+		data-refresh={ myURL + "?fragment=suppliers" }
+		data-effect={ "if ($suppliers && $refreshSuppliers && !$pending) { $refreshSuppliers = false; el.querySelector('dialog[open]')?.close(); " + templates.Refresh + " }" }
+	>
+		<h1>{ tr("suppliers.title") }</h1>
+		<header>
+			<search><input type="search" data-bind:supplier-search aria-label={ tr("suppliers.search") } placeholder={ tr("suppliers.search") }/></search>
+			if view.Admin {
+				<button type="button" class="outline" commandfor="supplier-dialog" command="show-modal" disabled?={ len(view.Budgets)==0 }>{ tr("suppliers.add") }</button>
+			}
+		</header>
+		<table class="nowrap">
+			<thead>
+				<tr>
+					<th>{ tr("suppliers.identity") }</th>
+					<th>{ tr("panel.name") }</th>
+					<th>{ tr("suppliers.description") }</th>
+					<th>{ tr("web.email") }</th>
+					<th>{ tr("suppliers.phone") }</th>
+					<th>IBAN</th>
+					<th>{ tr("panel.budget") }</th>
+					if view.Admin {
+						<th></th>
+					}
+				</tr>
+			</thead>
+			<tbody data-effect="if (!$pending) { const query = $supplierSearch.trim().toLocaleLowerCase(); let count = 0; for (const row of el.querySelectorAll('[data-supplier]')) { row.hidden = !Array.from(row.querySelectorAll('td:not([data-action])')).some(cell => cell.textContent.toLocaleLowerCase().includes(query)); if (!row.hidden) count++ } el.lastElementChild.hidden = count > 0 }">
+				for _, s := range view.Suppliers {
+					<tr data-supplier>
+						<td data-field="identity_number">{ s.IdentityNumber }</td>
+						<td data-field="name">{ s.Name }</td>
+						<td data-field="description">{ s.Description }</td>
+						<td data-field="email">{ s.Email }</td>
+						<td data-field="phone">{ s.Phone }</td>
+						<td data-field="iban">{ s.IBAN }</td>
+						<td>{ s.BudgetName }</td>
+						if view.Admin {
+							<td data-action><a href="#supplier-dialog" aria-haspopup="dialog" aria-controls="supplier-dialog" data-id={ strconv.FormatInt(s.ID, 10) } data-budget={ strconv.FormatInt(s.BudgetID, 10) } { templates.Link()... }>{ tr("suppliers.edit") }</a></td>
+						}
+					</tr>
+				}
+				<tr hidden?={ len(view.Suppliers)>0 }><td colspan={ map[bool]string{true: "8", false: "7"}[view.Admin] }>{ tr("suppliers.empty") }</td></tr>
+			</tbody>
+		</table>
+		if view.Admin {
+			<dialog data-on:input="$error = ''" data-on:keydown="if (evt.key === 'Enter' && !evt.isComposing && evt.target.matches('input')) { evt.preventDefault(); el.querySelector('footer button:last-child').click() }" data-action={ loginURL } id="supplier-dialog" aria-labelledby="supplier-dialog-title">
+				<header><h2 id="supplier-dialog-title"><span data-attr:hidden="$editingSupplier">{ tr("suppliers.new") }</span><span hidden data-attr:hidden="!$editingSupplier">{ tr("suppliers.edit_title") }</span></h2><button type="button" commandfor="supplier-dialog" command="close" aria-label={ tr("web.close") }>×</button></header>
+				@templates.FormError("supplier-save")
+				<div style="display:grid;gap:.75rem">
+					<input type="hidden" name="action" value="create_supplier"/>
+					<input type="hidden" name="supplier_id"/>
+					<label>{ tr("suppliers.identity") }<input name="identity_number" maxlength="64" required/></label>
+					<label>{ tr("panel.name") }<input name="name" maxlength="160" required/></label>
+					<label>{ tr("suppliers.description") }<textarea name="description" maxlength="4000" required></textarea></label>
+					<label>{ tr("web.email") }<input type="email" name="email" maxlength="254" required/></label>
+					<label>{ tr("suppliers.phone") }<input type="tel" name="phone" maxlength="64" required/></label>
+					<label>IBAN<input name="iban" maxlength="64" required/></label>
+					<label>
+						{ tr("panel.budget") }
+						<select name="budget_id" required>
+							for _, b := range view.Budgets {
+								<option value={ strconv.FormatInt(b.ID, 10) }>{ b.Name }</option>
+							}
+						</select>
+					</label>
+				</div>
+				<footer><button type="button" commandfor="supplier-dialog" command="close">{ tr("web.cancel") }</button><button type="button" id="supplier-save" data-on:click={ templates.SaveDialog } { templates.Button()... }><span data-attr:hidden="$editingSupplier">{ tr("suppliers.add") }</span><span hidden data-attr:hidden="!$editingSupplier">{ tr("suppliers.save") }</span></button></footer>
+			</dialog>
+		}
+	</section>
+}

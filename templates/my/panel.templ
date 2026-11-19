@@ -1,0 +1,100 @@
+package my
+
+import "strconv"
+import "time"
+import "sifeucr/templates"
+
+templ Panel(action, myURL string, view View, language string, tr func(string) string) {
+	{{ now := time.Now().Unix() }}
+	<section id="panel" data-refresh={ myURL + "?fragment=panel" } data-busy="panel-refresh" data-effect={ "if ($refreshPanel && !$pending) { $refreshPanel = false; document.querySelector('#panel dialog[open]')?.close(); " + templates.Refresh + " }" } data-attr:hidden="!$panel">
+		<h1>{ tr("panel.title") }</h1>
+		<details data-preserve-attr="open">
+			<summary>{ tr("panel.budget") }</summary>
+			<table class="nowrap">
+				<thead><tr><th>{ tr("panel.name") }</th><th>{ tr("panel.item") }</th><th>{ tr("panel.amount") }</th><th>{ tr("panel.start") }</th><th>{ tr("panel.end") }</th></tr></thead>
+				<tbody>
+					for _, b := range view.Budgets {
+						<tr>
+							<td>
+								{ b.Name }
+								@activeTag(now, b.StartsAt, b.EndsAt, tr)
+							</td>
+							<td>{ b.ItemNumber }</td>
+							<td>{ b.Amount() }</td>
+							<td>@timestamp(language, b.StartsAt, true)</td>
+							<td>@timestamp(language, b.EndsAt, true)</td>
+						</tr>
+					}
+					if len(view.Budgets)==0 {
+						<tr><td colspan="5">{ tr("panel.no_budgets") }</td></tr>
+					}
+				</tbody>
+			</table>
+			<footer><button type="button" class="outline" commandfor="budget-dialog" command="show-modal">{ tr("panel.new_budget") }</button></footer>
+			@createDialog(action, view, true, tr)
+		</details>
+		<details data-preserve-attr="open">
+			<summary>{ tr("panel.processes") }</summary>
+			<table class="nowrap">
+				<thead><tr><th>{ tr("panel.name") }</th><th>{ tr("panel.budget") }</th><th>{ tr("panel.start") }</th><th>{ tr("panel.end") }</th></tr></thead>
+				<tbody>
+					for _, p := range view.Processes {
+						<tr>
+							<td>
+								{ p.Name }
+								@activeTag(now, p.StartsAt, p.EndsAt, tr)
+							</td>
+							<td>{ p.BudgetName }</td>
+							<td>@timestamp(language, p.StartsAt, true)</td>
+							<td>@timestamp(language, p.EndsAt, true)</td>
+						</tr>
+					}
+					if len(view.Processes)==0 {
+						<tr><td colspan="4">{ tr("panel.no_processes") }</td></tr>
+					}
+				</tbody>
+			</table>
+			<footer><button type="button" class="outline" commandfor="process-dialog" command="show-modal" disabled?={ len(view.Budgets)==0 }>{ tr("panel.new_process") }</button></footer>
+			@createDialog(action, view, false, tr)
+		</details>
+	</section>
+}
+
+templ activeTag(now, start, end int64, tr func(string) string) {
+	if start <= now && now < end {
+		<span class="tag green">{ tr("panel.active") }</span>
+	}
+}
+
+templ createDialog(action string, view View, budget bool, tr func(string) string) {
+	{{
+		id, operation, title := "process-dialog", "create_process", tr("panel.new_process")
+		if budget {
+			id, operation, title = "budget-dialog", "create_budget", tr("panel.new_budget")
+		}
+	}}
+	<dialog data-on:input="$error = ''" data-on:keydown="if (evt.key === 'Enter' && !evt.isComposing && evt.target.matches('input')) { evt.preventDefault(); el.querySelector('footer button:last-child').click() }" data-action={ action } id={ id } aria-labelledby={ id + "-title" }>
+		<header><h2 id={ id + "-title" }>{ title }</h2><button type="button" commandfor={ id } command="close" aria-label={ tr("web.close") }>×</button></header>
+		@templates.FormError(id + "-save")
+		<div style="display:grid;gap:.75rem">
+			<input type="hidden" name="action" value={ operation }/>
+			<label>{ tr("panel.name") }<input name="name" required maxlength="160"/></label>
+			if budget {
+				<label>{ tr("panel.item") }<input name="item_number" type="text" inputmode="numeric" pattern="[0-9]+" required/></label>
+				<label>{ tr("panel.amount") }<input type="number" name="amount" min="0" step="0.01" required/></label>
+			} else {
+				<label>
+					{ tr("panel.budget") }
+					<select name="budget_id" required>
+						for _, b := range view.Budgets {
+							<option value={ strconv.FormatInt(b.ID, 10) }>{ b.Name }</option>
+						}
+					</select>
+				</label>
+			}
+			<label>{ tr("panel.start") } (UTC)<input name="starts_at" type="datetime-local" required/></label>
+			<label>{ tr("panel.end") } (UTC)<input name="ends_at" type="datetime-local" required/></label>
+		</div>
+		<footer><button type="button" commandfor={ id } command="close">{ tr("web.cancel") }</button><button type="button" id={ id + "-save" } data-on:click={ templates.SaveDialog } { templates.Button()... }>{ tr("panel.create") }</button></footer>
+	</dialog>
+}

@@ -237,6 +237,18 @@ func (a *Authenticator) issueLocked(ctx context.Context, q database.Querier, sub
 		return nil, nil, goauth.ErrInvalidIdentity
 	}
 
+	// Consume the singleton marker in the session transaction. Failed issuance
+	// rolls the claim back so the first successful login still owns setup.
+	claimed, err := q.ClaimSetup(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if claimed == 1 {
+		if err := q.AssignRoleToAccount(ctx, sub, database.RoleAdmin); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	sessionID, err := database.NewAuthID()
 	if err != nil {
 		return nil, nil, err

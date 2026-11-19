@@ -12,6 +12,8 @@ type Database interface {
 }
 
 type Querier interface {
+	SupplierQuerier
+	PanelQuerier
 	AccountQuerier
 	SessionQuerier
 	PermissionQuerier

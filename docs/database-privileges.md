@@ -38,6 +38,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.refresh_tokens TO 'sifeucr_runti
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.consumed_refresh_tokens TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON sifeucr.rate_limits TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT, INSERT, UPDATE ON sifeucr.account_roles TO 'sifeucr_runtime'@'<private-sifeucr-host>';
+GRANT SELECT, DELETE ON sifeucr.pending_setup TO 'sifeucr_runtime'@'<private-sifeucr-host>';
+GRANT SELECT, INSERT, UPDATE ON sifeucr.suppliers TO 'sifeucr_runtime'@'<private-sifeucr-host>';
+GRANT SELECT, INSERT ON sifeucr.budgets TO 'sifeucr_runtime'@'<private-sifeucr-host>';
+GRANT SELECT, INSERT ON sifeucr.purchase_processes TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT ON sifeucr.roles TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT ON sifeucr.permissions TO 'sifeucr_runtime'@'<private-sifeucr-host>';
 GRANT SELECT ON sifeucr.role_permissions TO 'sifeucr_runtime'@'<private-sifeucr-host>';

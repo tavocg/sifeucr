@@ -42,8 +42,273 @@ servers:
 tags:
   - name: Authentication
   - name: Account
+  - name: Suppliers
+  - name: Panel
   - name: Information
 paths:
+  /suppliers:
+    get:
+      tags: [Suppliers]
+      operationId: listSuppliers
+      summary: List suppliers
+      description: Available to all authenticated accounts.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Suppliers with their associated budgets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Supplier'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+    post:
+      tags: [Suppliers]
+      operationId: createSupplier
+      summary: Create a supplier linked to an existing budget
+      description: Requires the perm.admin permission.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierRequest'
+      responses:
+        '201':
+          description: Record created. The response body is empty.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+  /suppliers/{id}:
+    put:
+      tags: [Suppliers]
+      operationId: updateSupplier
+      summary: Replace the details of an existing supplier
+      description: Requires the perm.admin permission.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierRequest'
+      responses:
+        '204':
+          description: Record updated. The response body is empty.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+  /budgets:
+    get:
+      tags: [Panel]
+      operationId: listBudgets
+      summary: List budgets
+      description: Requires the perm.admin permission.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Budgets visible to the administrator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Budget'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+    post:
+      tags: [Panel]
+      operationId: createBudget
+      summary: Create a budget
+      description: Requires the perm.admin permission.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetRequest'
+      responses:
+        '201':
+          description: Record created. The response body is empty.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+  /purchase-processes:
+    get:
+      tags: [Panel]
+      operationId: listPurchaseProcesses
+      summary: List purchase processes
+      description: Requires the perm.admin permission.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Purchase processes visible to the administrator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PurchaseProcess'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
+    post:
+      tags: [Panel]
+      operationId: createPurchaseProcess
+      summary: Create a purchase process
+      description: Requires the perm.admin permission. The process must start on or after the budget start and end on or before the budget end. An interval outside these bounds returns 400.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseProcessRequest'
+      responses:
+        '201':
+          description: Record created. The response body is empty.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          description: A valid bearer token is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The account lacks the admin permission.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database or authentication service failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          $ref: '#/components/responses/RequestTimeout'
   /livez:
     get:
       operationId: liveness
@@ -329,6 +594,81 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    SupplierRequest:
+      type: object
+      additionalProperties: false
+      required: [identity_number, name, description, email, phone, iban, budget_id]
+      properties:
+        identity_number: {type: string, minLength: 1, maxLength: 64}
+        name: {type: string, minLength: 1, maxLength: 160}
+        description: {type: string, minLength: 1, maxLength: 4000}
+        email: {type: string, format: email, maxLength: 254}
+        phone: {type: string, minLength: 1, maxLength: 64}
+        iban: {type: string, minLength: 1, maxLength: 64}
+        budget_id: {type: integer, format: int64, minimum: 1}
+    Supplier:
+      type: object
+      additionalProperties: false
+      required: [identity_number, name, description, email, phone, iban, budget_id, id, budget_name]
+      properties:
+        identity_number: {type: string, minLength: 1, maxLength: 64}
+        name: {type: string, minLength: 1, maxLength: 160}
+        description: {type: string, minLength: 1, maxLength: 4000}
+        email: {type: string, format: email, maxLength: 254}
+        phone: {type: string, minLength: 1, maxLength: 64}
+        iban: {type: string, minLength: 1, maxLength: 64}
+        budget_id: {type: integer, format: int64, minimum: 1}
+        id: {type: integer, format: int64}
+        budget_name: {type: string}
+    BudgetRequest:
+      type: object
+      additionalProperties: false
+      required: [name, item_number, amount, starts_at, ends_at]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 160}
+        item_number: {type: string, pattern: '^[0-9]+$', example: '001', description: Numeric item code. Leading zeros are significant.}
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]{1,2})?$'
+          description: Nonnegative decimal amount up to 92233720368547758.07. Responses use exactly two decimal places.
+          example: '1234.50'
+        starts_at: {type: string, format: date-time, description: Inclusive start with whole-second precision.}
+        ends_at: {type: string, format: date-time, description: Exclusive end after the start with whole-second precision.}
+    Budget:
+      type: object
+      additionalProperties: false
+      required: [name, item_number, amount, starts_at, ends_at, id]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 160}
+        item_number: {type: string, pattern: '^[0-9]+$', example: '001', description: Numeric item code. Leading zeros are significant.}
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]{1,2})?$'
+          description: Nonnegative decimal amount up to 92233720368547758.07. Responses use exactly two decimal places.
+          example: '1234.50'
+        starts_at: {type: string, format: date-time, description: Inclusive start with whole-second precision.}
+        ends_at: {type: string, format: date-time, description: Exclusive end after the start with whole-second precision.}
+        id: {type: integer, format: int64}
+    PurchaseProcessRequest:
+      type: object
+      additionalProperties: false
+      required: [name, starts_at, ends_at, budget_id]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 160}
+        starts_at: {type: string, format: date-time, description: Inclusive process start with whole-second precision.}
+        ends_at: {type: string, format: date-time, description: Exclusive process end after its start with whole-second precision.}
+        budget_id: {type: integer, format: int64, minimum: 1, description: ID of an existing budget.}
+    PurchaseProcess:
+      type: object
+      additionalProperties: false
+      required: [name, starts_at, ends_at, budget_id, id, budget_name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 160}
+        starts_at: {type: string, format: date-time, description: Inclusive process start with whole-second precision.}
+        ends_at: {type: string, format: date-time, description: Exclusive process end after its start with whole-second precision.}
+        budget_id: {type: integer, format: int64, minimum: 1, description: ID of an existing budget.}
+        id: {type: integer, format: int64}
+        budget_name: {type: string}
     LoginRequest:
       type: object
       additionalProperties: false
